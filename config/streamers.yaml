@@ -1,0 +1,47 @@
+# Streamers monitorados.
+#
+# layout.mode:
+#   blur  -> vídeo inteiro centralizado sobre fundo desfocado (funciona pra qualquer layout; default seguro)
+#   stack -> facecam em cima + gameplay embaixo (melhor retenção, mas precisa calibrar o recorte)
+#
+# Coordenadas de recorte são NORMALIZADAS (0..1) em relação ao vídeo original:
+#   x, y = canto superior esquerdo; w, h = largura/altura.
+# Para calibrar: `clipper frame <url-do-clip>` salva um PNG do clip; meça a facecam e preencha.
+
+streamers:
+  - name: Coringa
+    platform: twitch
+    login: coringa
+    layout:
+      mode: blur
+
+  - name: Gaules
+    platform: twitch
+    login: gaules
+    layout:
+      mode: blur
+    # Se ele estiver transmitindo GTA na Kick, troque para:
+    # platform: kick
+    # login: gaules
+
+  - name: Alanzoka
+    platform: twitch
+    login: alanzoka
+    layout:
+      mode: blur
+
+  - name: Davy Jones
+    platform: twitch
+    login: davyjones
+    layout:
+      mode: blur
+
+# Exemplo de layout "stack" (facecam no canto inferior direito, 25% da tela):
+#  - name: Exemplo
+#    platform: twitch
+#    login: exemplo
+#    layout:
+#      mode: stack
+#      facecam: { x: 0.75, y: 0.70, w: 0.25, h: 0.30 }
+#      gameplay: { x: 0.12, y: 0.0, w: 0.76, h: 1.0 }
+#      facecam_ratio: 0.33   # fração da altura 9:16 ocupada pela facecam
