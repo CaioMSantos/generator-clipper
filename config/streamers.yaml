@@ -2,7 +2,9 @@
 #
 # layout.mode:
 #   blur  -> vídeo inteiro centralizado sobre fundo desfocado (funciona pra qualquer layout; default seguro)
-#   stack -> facecam em cima + gameplay embaixo (melhor retenção, mas precisa calibrar o recorte)
+#   stack -> facecam em cima (30%) + gameplay embaixo (70%), padrão do canal; precisa calibrar o recorte.
+#            O gameplay é cortado no centro; se a facecam estiver a menos de ~28% da borda,
+#            defina `gameplay` começando depois dela para não vazar.
 #
 # Coordenadas de recorte são NORMALIZADAS (0..1) em relação ao vídeo original:
 #   x, y = canto superior esquerdo; w, h = largura/altura.
@@ -12,14 +14,23 @@ streamers:
   - name: Coringa
     platform: twitch
     login: coringa
+    # Calibrado em 17/11/2026 (GTA RP): facecam no canto superior esquerdo.
     layout:
-      mode: blur
+      mode: stack
+      facecam: { x: 0.0, y: 0.0, w: 0.31, h: 0.31 }
+      # Gameplay simétrico começando depois da cam, para ela não vazar na borda esquerda.
+      gameplay: { x: 0.31, y: 0.0, w: 0.38, h: 1.0 }
+      facecam_ratio: 0.30
 
   - name: Gaules
     platform: twitch
     login: gaules
+    # Calibrado em 17/11/2026 num clip de CS: facecam à esquerda, no meio da altura.
+    # Conferir com um clip de GTA (`clipper frame <url>`), o overlay pode mudar por jogo.
     layout:
-      mode: blur
+      mode: stack
+      facecam: { x: 0.0, y: 0.43, w: 0.20, h: 0.21 }
+      facecam_ratio: 0.30
     # Se ele estiver transmitindo GTA na Kick, troque para:
     # platform: kick
     # login: gaules
@@ -27,8 +38,11 @@ streamers:
   - name: Alanzoka
     platform: twitch
     login: alanzoka
+    # Calibrado em 17/11/2026: facecam no canto superior esquerdo.
     layout:
-      mode: blur
+      mode: stack
+      facecam: { x: 0.005, y: 0.01, w: 0.215, h: 0.24 }
+      facecam_ratio: 0.30
 
   - name: Davy Jones
     platform: twitch

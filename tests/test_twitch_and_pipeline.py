@@ -126,3 +126,32 @@ def test_claim_ignores_stale_clips_and_recover_stuck(pipeline: Pipeline) -> None
     pipeline.store.upsert_discovered(fresh, 1, 1)
     assert len(pipeline.store.claim_next(5, NOW - timedelta(hours=6))) == 1
     assert pipeline.store.recover_stuck() == 1
+
+
+@respx.mock
+def test_twitch_fetch_clip_by_id() -> None:
+    respx.post(TOKEN_URL).mock(return_value=httpx.Response(200, json={"access_token": "t", "expires_in": 3600}))
+    route = respx.get(f"{HELIX_URL}/clips").mock(
+        side_effect=[
+            httpx.Response(200, json={"data": [{
+                "id": "Abc", "url": "https://clips.twitch.tv/Abc", "broadcaster_name": "Alanzoka",
+                "title": "que jogada", "view_count": 7, "created_at": "2026-11-19T21:30:00Z",
+            }]}),
+            httpx.Response(200, json={"data": []}),
+        ]
+    )  # fmt: skip
+    src = TwitchSource("id", "s")
+    clip = src.fetch_clip("Abc")
+    assert clip is not None
+    assert (clip.broadcaster_login, clip.title, clip.view_count) == ("alanzoka", "que jogada", 7)
+    assert route.calls[0].request.url.params["id"] == "Abc"
+    assert src.fetch_clip("Gone", "coringa") is None
+
+
+def test_suggested_caption_has_no_leading_blank_lines_without_title() -> None:
+    import dataclasses
+
+    from clipper.pipeline import _metadata
+
+    meta = _metadata(dataclasses.replace(make_clip(), title=""), 0.0, [])
+    assert str(meta["suggested_caption"]).startswith("Créditos:")

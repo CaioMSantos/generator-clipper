@@ -92,6 +92,13 @@ class Settings(BaseSettings):
     whisper_model: str = Field(default="small", alias="CLIPPER_WHISPER_MODEL")
     whisper_language: str = Field(default="pt", alias="CLIPPER_WHISPER_LANGUAGE")
 
+    # Hook title (AI-written). Key may also come from an `ant auth login` profile.
+    anthropic_api_key: str = Field(default="", alias="ANTHROPIC_API_KEY")
+    hook_enabled: bool = Field(default=True, alias="CLIPPER_HOOK_ENABLED")
+    hook_model: str = Field(default="claude-opus-5-5", alias="CLIPPER_HOOK_MODEL")
+
+    fonts_dir: Path = Field(default=Path("assets/fonts"), alias="CLIPPER_FONTS_DIR")
+
     @property
     def game_name_list(self) -> list[str]:
         return [g.strip() for g in self.game_names.split(",") if g.strip()]

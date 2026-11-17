@@ -1,4 +1,8 @@
-"""TikTok-style captions: short uppercase chunks with the spoken word highlighted (ASS)."""
+"""Burned-in captions (ASS).
+
+Default style follows the channel reference: one word at a time, white, natural case,
+soft shadow, ~80% down the frame. `KARAOKE` keeps the old 3-word uppercase/yellow style.
+"""
 
 from __future__ import annotations
 
@@ -14,19 +18,27 @@ PLAY_RES_Y = 1920
 WHITE = "&H00FFFFFF"
 YELLOW = "&H0000E5FF"
 BLACK = "&H00000000"
+SHADOW = "&H80000000"  # 50% transparent black
 
 
 @dataclass(frozen=True, slots=True)
 class CaptionStyle:
     font: str = "DejaVu Sans"
-    font_size: int = 86
-    outline: int = 7
-    shadow: int = 2
-    margin_v: int = 620          # distance from bottom; ~1/3 from the bottom by default
-    max_words: int = 3
+    font_size: int = 74
+    outline: int = 3
+    shadow: int = 3
+    margin_v: int = 330          # distance from bottom: text sits ~80% down the frame
+    max_words: int = 1
     max_chars: int = 18
     max_gap_s: float = 0.6       # a pause longer than this starts a new chunk
     hold_s: float = 0.25         # keep last word on screen a bit after it is spoken
+    uppercase: bool = False
+    highlight: bool = False      # color the word being spoken (only useful with max_words > 1)
+
+
+KARAOKE = CaptionStyle(
+    font_size=86, outline=7, shadow=2, margin_v=620, max_words=3, uppercase=True, highlight=True
+)
 
 
 def chunk_words(words: Sequence[Word], style: CaptionStyle) -> list[list[Word]]:
@@ -70,7 +82,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{style.font},{style.font_size},{WHITE},{WHITE},{BLACK},{BLACK},-1,0,0,0,100,100,0,0,1,{style.outline},{style.shadow},2,60,60,{style.margin_v},1
+Style: Default,{style.font},{style.font_size},{WHITE},{WHITE},{BLACK},{SHADOW},-1,0,0,0,100,100,0,0,1,{style.outline},{style.shadow},2,60,60,{style.margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -79,7 +91,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     chunks = chunk_words(words, style)
     for ci, chunk in enumerate(chunks):
         next_chunk_start = chunks[ci + 1][0].start if ci + 1 < len(chunks) else None
-        tokens = [_escape(w.text.upper()) for w in chunk]
+        tokens = [_escape(w.text.upper() if style.uppercase else w.text) for w in chunk]
         for wi, w in enumerate(chunk):
             start = w.start
             if wi + 1 < len(chunk):
@@ -91,7 +103,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if end <= start:
                 end = start + 0.05
             parts = [
-                f"{{\\c{YELLOW}}}{tok}{{\\c{WHITE}}}" if i == wi else tok
+                f"{{\\c{YELLOW}}}{tok}{{\\c{WHITE}}}" if style.highlight and i == wi else tok
                 for i, tok in enumerate(tokens)
             ]
             lines.append(f"Dialogue: 0,{_ts(start)},{_ts(end)},Default,,0,0,0,,{' '.join(parts)}")

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from clipper.media import MediaError
+from clipper.media.audio import load_audio
 
 log = logging.getLogger(__name__)
 
@@ -43,9 +44,10 @@ class WhisperTranscriber:
             return self._model
 
     def transcribe(self, media: Path) -> list[Word]:
+        audio = load_audio(media)  # raises MediaError itself
         try:
             segments, _info = self._get_model().transcribe(
-                str(media),
+                audio,
                 language=self._language,
                 word_timestamps=True,
                 vad_filter=True,
@@ -59,5 +61,5 @@ class WhisperTranscriber:
                     if text:
                         words.append(Word(text=text, start=float(w.start), end=float(w.end)))
             return words
-        except Exception as exc:  # faster-whisper/av raise a variety of exception types
+        except Exception as exc:  # faster-whisper/ctranslate2 raise a variety of exception types
             raise MediaError(f"transcription failed for {media.name}: {exc}") from exc

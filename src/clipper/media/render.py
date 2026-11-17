@@ -1,14 +1,16 @@
-"""ffmpeg reframing to 1080x1920 with burned captions."""
+"""ffmpeg reframing to 1080x1920 with burned captions and the hook title card."""
 
 from __future__ import annotations
 
 import logging
 import shutil
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 from clipper.config import BlurLayout, Layout, Rect, StackLayout
 from clipper.media import MediaError
+from clipper.media.fonts import FontSpec
 
 log = logging.getLogger(__name__)
 
@@ -16,6 +18,29 @@ OUT_W = 1080
 OUT_H = 1920
 FFMPEG_TIMEOUT_S = 600
 CAPTIONS_FILENAME = "captions.ass"
+HOOK_FILENAME = "hook.png"
+FONTS_SUBDIR = "fonts"
+HOOK_DURATION_S = 4.0
+HOOK_FADE_S = 0.4
+
+
+@dataclass(frozen=True, slots=True)
+class HookOverlay:
+    """Hook card already rendered to `work_dir/hook.png`; `top_y` is its top edge in the output."""
+
+    top_y: int
+    duration_s: float = HOOK_DURATION_S
+
+
+def hook_center_y(layout: Layout) -> int:
+    """Where the hook card is centered: on the seam between facecam and gameplay.
+
+    For blur, that is the top edge of the (assumed 16:9) foreground video.
+    """
+    if isinstance(layout, StackLayout):
+        return int(round(OUT_H * layout.facecam_ratio / 2)) * 2
+    fg_h = int(OUT_W * layout.zoom * 9 / 16)
+    return max((OUT_H - fg_h) // 2, 0)
 
 
 def _crop(r: Rect) -> str:
@@ -31,8 +56,16 @@ def _fill(w: int, h: int) -> str:
     return f"scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}"
 
 
-def build_filtergraph(layout: Layout, with_captions: bool) -> str:
-    """Returns a filter_complex whose final video label is [v]."""
+def build_filtergraph(
+    layout: Layout,
+    with_captions: bool,
+    hook: HookOverlay | None = None,
+    with_fontsdir: bool = False,
+) -> str:
+    """Returns a filter_complex whose final video label is [v].
+
+    Input 0 is the clip; when `hook` is set, input 1 is the looped hook PNG.
+    """
     if isinstance(layout, StackLayout):
         face_h = int(round(OUT_H * layout.facecam_ratio / 2)) * 2
         game_h = OUT_H - face_h
@@ -55,10 +88,19 @@ def build_filtergraph(layout: Layout, with_captions: bool) -> str:
     else:  # pragma: no cover - exhaustive over the Layout union
         raise MediaError(f"unsupported layout: {layout!r}")
 
+    last = "base"
     if with_captions:
-        graph += f";[base]ass={CAPTIONS_FILENAME}[v]"
-    else:
-        graph += ";[base]null[v]"
+        fontsdir = f":fontsdir={FONTS_SUBDIR}" if with_fontsdir else ""
+        graph += f";[{last}]ass={CAPTIONS_FILENAME}{fontsdir}[capt]"
+        last = "capt"
+    if hook is not None:
+        fade_start = max(hook.duration_s - HOOK_FADE_S, 0.0)
+        graph += (
+            f";[1:v]format=rgba,fade=t=out:st={fade_start:.2f}:d={HOOK_FADE_S:.2f}:alpha=1[hk]"
+            f";[{last}][hk]overlay=x=(W-w)/2:y={hook.top_y}:eof_action=pass:format=auto[hooked]"
+        )
+        last = "hooked"
+    graph += f";[{last}]null[v]"
     return graph
 
 
@@ -75,6 +117,9 @@ def render_vertical(
     layout: Layout,
     captions_ass: str | None,
     work_dir: Path,
+    *,
+    hook: HookOverlay | None = None,
+    font: FontSpec | None = None,
 ) -> Path:
     """Renders `source` into a 9:16 mp4 at `output`.
 
@@ -86,12 +131,27 @@ def render_vertical(
     output.parent.mkdir(parents=True, exist_ok=True)
     if captions_ass:
         (work_dir / CAPTIONS_FILENAME).write_text(captions_ass, encoding="utf-8")
+    if font is not None:
+        # libass only sees fonts in fontsdir (or the system); copy so the path needs no escaping.
+        fonts = work_dir / FONTS_SUBDIR
+        fonts.mkdir(exist_ok=True)
+        shutil.copyfile(font.path, fonts / font.path.name)
+    if hook is not None and not (work_dir / HOOK_FILENAME).is_file():
+        raise MediaError(f"hook overlay requested but {HOOK_FILENAME} is missing in {work_dir}")
+    hook_input = (
+        ["-loop", "1", "-framerate", "60", "-t", f"{hook.duration_s:.2f}", "-i", HOOK_FILENAME]
+        if hook is not None
+        else []
+    )
 
     tmp_out = output.with_suffix(".tmp.mp4")
     cmd = [
         ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
         "-i", str(source.resolve()),
-        "-filter_complex", build_filtergraph(layout, with_captions=bool(captions_ass)),
+        *hook_input,
+        "-filter_complex", build_filtergraph(
+            layout, with_captions=bool(captions_ass), hook=hook, with_fontsdir=font is not None
+        ),
         "-map", "[v]", "-map", "0:a?",
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
         "-pix_fmt", "yuv420p", "-fps_mode", "cfr",

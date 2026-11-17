@@ -13,7 +13,9 @@ def test_repo_catalog_loads() -> None:
     cat = load_catalog(REPO_CONFIG)
     logins = {s.login for s in cat.enabled()}
     assert {"coringa", "gaules", "alanzoka", "davyjones"} <= logins
-    assert all(isinstance(s.layout, BlurLayout) for s in cat.streamers)
+    alanzoka = cat.find(Platform.TWITCH, "alanzoka")
+    assert alanzoka is not None and isinstance(alanzoka.layout, StackLayout)
+    assert all(isinstance(s.layout, (BlurLayout, StackLayout)) for s in cat.streamers)
 
 
 def test_stack_layout_and_find(tmp_path: Path) -> None:

@@ -18,6 +18,7 @@ ARG WHISPER_MODEL=small
 RUN python -c "from faster_whisper import WhisperModel; WhisperModel('${WHISPER_MODEL}', device='cpu', compute_type='int8')"
 
 COPY config ./config
+COPY assets ./assets
 
 RUN useradd --create-home --uid 1000 clipper && mkdir -p /app/data && chown -R clipper /app/data /models
 USER clipper

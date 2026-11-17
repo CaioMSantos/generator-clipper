@@ -142,6 +142,16 @@ class TwitchSource:
                 log.error("failed to fetch clips for %s: %s", login, exc)
         return clips
 
+    def fetch_clip(self, clip_id: str, login: str | None = None) -> Clip | None:
+        """Fetches a single clip by id (used by manual `render`). None if it doesn't exist."""
+        body = self._get("/clips", [("id", clip_id)])
+        data = body.get("data") or []
+        if not data:
+            return None
+        raw = data[0]
+        resolved = login or str(raw.get("broadcaster_name") or "manual").lower()
+        return self._to_clip(resolved, raw)
+
     def _fetch_for_broadcaster(
         self, login: str, broadcaster_id: str, since: datetime, game_ids: set[str] | None
     ) -> list[Clip]:

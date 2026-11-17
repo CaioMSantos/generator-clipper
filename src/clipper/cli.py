@@ -12,7 +12,9 @@ from types import FrameType
 
 from clipper.config import ConfigError, Platform, Settings, load_catalog
 from clipper.media import MediaError
+from clipper.hook import ClaudeHookWriter
 from clipper.media.download import download_clip
+from clipper.media.fonts import FontSpec, resolve_font
 from clipper.media.render import extract_frame
 from clipper.media.transcribe import WhisperTranscriber
 from clipper.models import Clip, ClipStatus
@@ -48,7 +50,19 @@ def _build(settings: Settings, need_sources: bool = True) -> Pipeline:
             sources.append(KickSource())
     store = Store(settings.db_path)
     transcriber = WhisperTranscriber(settings.whisper_model, settings.whisper_language)
-    return Pipeline(settings, catalog, store, sources, transcriber)
+    try:
+        spec = resolve_font(settings.fonts_dir)
+        log.info("font: %s (%s)", spec.family, spec.path)
+        font: FontSpec | None = spec
+    except MediaError as exc:
+        log.warning("%s; captions use libass default font and hooks are disabled", exc)
+        font = None
+    hook_writer = (
+        ClaudeHookWriter(settings.hook_model, settings.anthropic_api_key or None)
+        if settings.hook_enabled
+        else None
+    )
+    return Pipeline(settings, catalog, store, sources, transcriber, hook_writer, font)
 
 
 def _platform_from_url(url: str) -> Platform:
@@ -78,24 +92,42 @@ def cmd_run(settings: Settings, once: bool) -> int:
     return 0
 
 
-def cmd_render(settings: Settings, url: str, streamer: str | None, captions: bool) -> int:
+def _lookup_twitch_clip(settings: Settings, clip_id: str, login: str | None) -> Clip | None:
+    """Best effort: real title/views/created_at from Helix. Falls back to a placeholder."""
+    if not (settings.twitch_client_id and settings.twitch_client_secret):
+        return None
+    try:
+        return TwitchSource(settings.twitch_client_id, settings.twitch_client_secret).fetch_clip(
+            clip_id, login
+        )
+    except SourceError as exc:
+        log.warning("could not fetch clip metadata from twitch (%s); using placeholder", exc)
+        return None
+
+
+def cmd_render(
+    settings: Settings, url: str, streamer: str | None, captions: bool, hook: str | None = None
+) -> int:
     """Renders an arbitrary clip URL (manual mode / testing layouts)."""
     pipe = _build(settings, need_sources=False)
     platform = _platform_from_url(url)
-    login = (streamer or "manual").lower()
-    clip = Clip(
-        id=_clip_id_from_url(url),
-        platform=platform,
-        broadcaster_login=login,
-        broadcaster_name=streamer or "manual",
-        title="",
-        url=url,
-        view_count=0,
-        created_at=datetime.now(timezone.utc),
-        duration_s=0,
-    )
-    result = pipe.render_clip(clip, captions=captions)
-    print(f"{result.output}\n{result.metadata}\nwords={result.words}")
+    clip_id = _clip_id_from_url(url)
+    login = streamer.lower() if streamer else None
+    clip = _lookup_twitch_clip(settings, clip_id, login) if platform == Platform.TWITCH else None
+    if clip is None:
+        clip = Clip(
+            id=clip_id,
+            platform=platform,
+            broadcaster_login=login or "manual",
+            broadcaster_name=streamer or "manual",
+            title="",
+            url=url,
+            view_count=0,
+            created_at=datetime.now(timezone.utc),
+            duration_s=0,
+        )
+    result = pipe.render_clip(clip, captions=captions, hook_text=hook)
+    print(f"{result.output}\n{result.metadata}\nwords={result.words}\nhook={result.hook!r}")
     return 0
 
 
@@ -141,6 +173,7 @@ def main(argv: list[str] | None = None) -> int:
     p_render.add_argument("url")
     p_render.add_argument("--streamer", help="login do streamer (usa o layout configurado)")
     p_render.add_argument("--no-captions", action="store_true")
+    p_render.add_argument("--hook", help="texto do gancho (pula a geração por IA)")
 
     p_frame = sub.add_parser("frame", help="salva um PNG do clip para calibrar o layout")
     p_frame.add_argument("url")
@@ -159,7 +192,10 @@ def main(argv: list[str] | None = None) -> int:
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
-    for noisy in ("httpx", "httpcore", "faster_whisper"):
+    for noisy in (
+        "httpx", "httpcore", "httpx2", "httpcore2", "faster_whisper", "huggingface_hub", "filelock",
+        "anthropic", "PIL",
+    ):  # fmt: skip
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
     try:
@@ -167,7 +203,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.cmd == "run":
             return cmd_run(settings, args.once)
         if args.cmd == "render":
-            return cmd_render(settings, args.url, args.streamer, not args.no_captions)
+            return cmd_render(settings, args.url, args.streamer, not args.no_captions, args.hook)
         if args.cmd == "frame":
             return cmd_frame(settings, args.url, args.at)
         if args.cmd == "list":
