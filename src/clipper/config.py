@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError, model_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -82,6 +82,8 @@ class Settings(BaseSettings):
 
     streamers_file: Path = Field(default=Path("config/streamers.yaml"), alias="CLIPPER_STREAMERS_FILE")
     data_dir: Path = Field(default=Path("data"), alias="CLIPPER_DATA_DIR")
+    # Where finished .mp4/.json go (date subfolders). Empty = <data_dir>/output.
+    output_dir_override: Path | None = Field(default=None, alias="CLIPPER_OUTPUT_DIR")
 
     poll_interval_seconds: int = Field(default=120, ge=30, alias="CLIPPER_POLL_INTERVAL_SECONDS")
     lookback_hours: int = Field(default=6, ge=1, le=72, alias="CLIPPER_LOOKBACK_HOURS")
@@ -111,9 +113,14 @@ class Settings(BaseSettings):
     def downloads_dir(self) -> Path:
         return self.data_dir / "downloads"
 
+    @field_validator("output_dir_override", mode="before")
+    @classmethod
+    def _empty_output_dir_is_default(cls, value: object) -> object:
+        return None if isinstance(value, str) and not value.strip() else value
+
     @property
     def output_dir(self) -> Path:
-        return self.data_dir / "output"
+        return self.output_dir_override or self.data_dir / "output"
 
 
 def load_catalog(path: Path) -> StreamerCatalog:

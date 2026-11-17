@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from clipper.config import BlurLayout, ConfigError, Platform, StackLayout, load_catalog
+from clipper.config import BlurLayout, ConfigError, Platform, Settings, StackLayout, load_catalog
 
 REPO_CONFIG = Path(__file__).resolve().parent.parent / "config" / "streamers.yaml"
 
@@ -44,3 +44,14 @@ def test_rect_outside_frame_is_rejected(tmp_path: Path) -> None:
 def test_missing_file() -> None:
     with pytest.raises(ConfigError, match="not found"):
         load_catalog(Path("/nope.yaml"))
+
+
+def test_output_dir_defaults_to_data_and_accepts_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)  # no .env here
+    monkeypatch.setenv("CLIPPER_DATA_DIR", "d")
+    monkeypatch.setenv("CLIPPER_OUTPUT_DIR", "")
+    assert Settings().output_dir == Path("d") / "output"
+    monkeypatch.setenv("CLIPPER_OUTPUT_DIR", str(tmp_path / "Clips"))
+    assert Settings().output_dir == tmp_path / "Clips"
