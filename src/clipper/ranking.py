@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -65,17 +65,21 @@ def cluster_moments(clips: Iterable[Clip]) -> list[list[Clip]]:
     return clusters + singles
 
 
-def rank(clips: Iterable[Clip], now: datetime, min_views: int = 0) -> list[RankedClip]:
+def rank(
+    clips: Iterable[Clip], now: datetime, min_views: int | Callable[[Clip], int] = 0
+) -> list[RankedClip]:
     """Returns one representative per moment, best first.
 
     The representative is the most-viewed clip of the cluster; the score sums the
     velocity of every clip in the cluster and adds a boost per duplicate.
+    `min_views` may be per clip (e.g. per streamer/platform: Kick clips get far fewer views).
     """
     ranked: list[RankedClip] = []
     for cluster in cluster_moments(clips):
         best = max(cluster, key=lambda c: (c.view_count, -c.created_at.timestamp()))
         total_views = sum(c.view_count for c in cluster)
-        if total_views < min_views:
+        threshold = min_views(best) if callable(min_views) else min_views
+        if total_views < threshold:
             continue
         base = sum(velocity(c, now) for c in cluster)
         score = base * (1 + CLUSTER_BOOST * (len(cluster) - 1))

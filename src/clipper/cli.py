@@ -47,7 +47,7 @@ def _build(settings: Settings, need_sources: bool = True) -> Pipeline:
                 )
             )
         if catalog.enabled(Platform.KICK):
-            sources.append(KickSource())
+            sources.append(KickSource(game_names=settings.game_name_list))
     store = Store(settings.db_path)
     transcriber = WhisperTranscriber(settings.whisper_model, settings.whisper_language)
     try:

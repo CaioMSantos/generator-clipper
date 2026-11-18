@@ -80,7 +80,7 @@ class Pipeline:
             except SourceError as exc:
                 log.error("source %s failed: %s", type(source).__name__, exc)
 
-        ranked = rank(clips, now, min_views=self.settings.min_views)
+        ranked = rank(clips, now, min_views=self.min_views_for)
         queued = 0
         for r in ranked:
             cluster = [r.clip, *r.duplicates]
@@ -113,6 +113,12 @@ class Pipeline:
                 log.error("FAILED %s (attempt %d): %s", row.key, row.attempts, exc)
                 self.store.set_status(row.key, ClipStatus.FAILED, error=str(exc)[:1000])
         return done
+
+    def min_views_for(self, clip: Clip) -> int:
+        streamer = self.catalog.find(clip.platform, clip.broadcaster_login)
+        if streamer is not None and streamer.min_views is not None:
+            return streamer.min_views
+        return self.settings.min_views
 
     def layout_for(self, clip: Clip) -> Layout:
         streamer = self.catalog.find(clip.platform, clip.broadcaster_login)

@@ -56,6 +56,8 @@ class Streamer(BaseModel):
     login: str
     layout: Layout = Field(default_factory=BlurLayout, discriminator="mode")
     enabled: bool = True
+    # Overrides CLIPPER_MIN_VIEWS for this streamer (Kick clips get ~10x fewer views than Twitch).
+    min_views: int | None = Field(default=None, ge=0)
 
 
 class StreamerCatalog(BaseModel):

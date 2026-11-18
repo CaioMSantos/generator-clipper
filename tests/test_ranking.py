@@ -46,3 +46,10 @@ def test_min_views_filters_on_cluster_total(now: datetime) -> None:
     b = make_clip("b", views=25, vod_offset=110)
     assert len(rank([a, b], now, min_views=30)) == 1
     assert len(rank([a], now, min_views=30)) == 0
+
+
+def test_min_views_can_be_per_clip(now: datetime) -> None:
+    kick = make_clip(id="k", views=8)
+    twitch = make_clip(id="t", views=8)
+    per_clip = rank([kick, twitch], now, min_views=lambda c: 5 if c.id == "k" else 100)
+    assert [r.clip.id for r in per_clip] == ["k"]

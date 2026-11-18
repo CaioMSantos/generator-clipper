@@ -47,6 +47,40 @@ streamers:
   - name: Davy Jones
     platform: twitch
     login: davyjones
+    enabled: false  # transmite GTA VI pela Kick (0 clips na Twitch em 17/11)
+    layout:
+      mode: blur
+
+  # ---- Kick ----------------------------------------------------------------
+  # Clips da Kick têm ~10x menos views que os da Twitch: `min_views` por streamer
+  # sobrescreve CLIPPER_MIN_VIEWS. Calibrar com o volume real do lançamento.
+
+  - name: Davy Jones
+    platform: kick
+    login: davyjones
+    min_views: 5
+    # Calibrado em 18/11/2026 num clip de GTA VI: facecam no canto superior esquerdo.
+    layout:
+      mode: stack
+      facecam: { x: 0.015, y: 0.022, w: 0.215, h: 0.213 }
+      facecam_ratio: 0.30
+
+  - name: Coringa
+    platform: kick
+    login: coringa
+    min_views: 5
+    # Mesma calibração da Twitch (cena de GTA). Conferir com um clip de GTA da Kick.
+    layout:
+      mode: stack
+      facecam: { x: 0.0, y: 0.0, w: 0.31, h: 0.31 }
+      gameplay: { x: 0.31, y: 0.0, w: 0.38, h: 1.0 }
+      facecam_ratio: 0.30
+
+  - name: Gaules
+    platform: kick
+    login: gaules
+    min_views: 5
+    # Em 18/11 estava em IRL (Miami); layout de GTA na Kick ainda não visto.
     layout:
       mode: blur
 
