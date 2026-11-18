@@ -9,13 +9,14 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from clipper.config import BlurLayout, Layout, Settings, StreamerCatalog
+from clipper.config import BlurLayout, Layout, Settings, StackLayout, StreamerCatalog
 from clipper.media import MediaError
 from clipper.hook import HookWriter
 from clipper.media.captions import CaptionStyle, build_ass
 from clipper.media.fonts import FontSpec
 from clipper.media.hook_card import render_hook_card
 from clipper.media.download import download_clip
+from clipper.media.facecam import FaceDetector, pick_facecam
 from clipper.media.render import HOOK_FILENAME, HookOverlay, hook_center_y, render_vertical
 from clipper.media.transcribe import Transcriber, Word
 from clipper.models import Clip, ClipStatus
@@ -57,6 +58,7 @@ class Pipeline:
         transcriber: Transcriber,
         hook_writer: HookWriter | None = None,
         font: FontSpec | None = None,
+        face_detector: FaceDetector | None = None,
     ) -> None:
         self.settings = settings
         self.catalog = catalog
@@ -65,6 +67,7 @@ class Pipeline:
         self.transcriber = transcriber
         self.hook_writer = hook_writer
         self.font = font
+        self.face_detector = face_detector
 
     # ---- discovery ----------------------------------------------------------
 
@@ -159,7 +162,7 @@ class Pipeline:
         out_dir = s.output_dir / day
         output = out_dir / f"{_safe(clip.broadcaster_login)}_{basename}.mp4"
         work_dir = s.data_dir / "work" / basename
-        chosen_layout = layout or self.layout_for(clip)
+        chosen_layout = self._resolve_layout(source, layout or self.layout_for(clip))
         style = CaptionStyle(font=self.font.family) if self.font else CaptionStyle()
         try:
             overlay = self._prepare_hook(hook, chosen_layout, work_dir) if hook else None
@@ -181,6 +184,21 @@ class Pipeline:
             encoding="utf-8",
         )
         return RenderResult(output=output, metadata=metadata, words=len(words), hook=hook)
+
+    def _resolve_layout(self, source: Path, layout: Layout) -> Layout:
+        """Picks this clip's facecam among the candidates; no face found -> blur."""
+        if not isinstance(layout, StackLayout) or not self.settings.facecam_detect:
+            return layout
+        candidates = [layout.facecam, *layout.facecam_alternates]
+        try:
+            found = pick_facecam(source, candidates, self.face_detector)
+        except Exception as exc:  # detection is best effort; never lose the clip over it
+            log.warning("facecam detection failed for %s, using calibrated rect: %s", source.name, exc)
+            return layout
+        if found is None:
+            log.info("facecam not found in %s (scene without camera?), using blur layout", source.name)
+            return BlurLayout()
+        return layout.model_copy(update={"facecam": found})
 
     def _prepare_hook(self, hook: str, layout: Layout, work_dir: Path) -> HookOverlay | None:
         if self.font is None:

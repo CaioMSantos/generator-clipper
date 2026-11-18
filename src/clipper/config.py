@@ -43,6 +43,8 @@ class BlurLayout(BaseModel):
 class StackLayout(BaseModel):
     mode: Literal["stack"]
     facecam: Rect
+    # Other places the streamer puts the camera in other scenes; the one with a detected face wins.
+    facecam_alternates: list[Rect] = Field(default_factory=list)
     gameplay: Rect = Rect(x=0.0, y=0.0, w=1.0, h=1.0)
     facecam_ratio: float = Field(default=0.33, ge=0.15, le=0.5)
 
@@ -104,6 +106,9 @@ class Settings(BaseSettings):
     hook_model: str = Field(default="claude-opus-5-5", alias="CLIPPER_HOOK_MODEL")
 
     fonts_dir: Path = Field(default=Path("assets/fonts"), alias="CLIPPER_FONTS_DIR")
+
+    # Find the facecam per clip (face detection over the candidate rects); no face -> blur layout.
+    facecam_detect: bool = Field(default=True, alias="CLIPPER_FACECAM_DETECT")
 
     @property
     def game_name_list(self) -> list[str]:

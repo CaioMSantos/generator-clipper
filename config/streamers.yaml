@@ -3,6 +3,8 @@
 # layout.mode:
 #   blur  -> vídeo inteiro centralizado sobre fundo desfocado (funciona pra qualquer layout; default seguro)
 #   stack -> facecam em cima (30%) + gameplay embaixo (70%), padrão do canal; precisa calibrar o recorte.
+#            Se o streamer muda a câmera de lugar, liste as outras posições em `facecam_alternates`:
+#            por clip, vence a posição onde um rosto é detectado; sem rosto, o clip sai em blur.
 #            O gameplay é cortado no centro; se a facecam estiver a menos de ~28% da borda,
 #            defina `gameplay` começando depois dela para não vazar.
 #
@@ -59,10 +61,14 @@ streamers:
     platform: kick
     login: davyjones
     min_views: 5
-    # Calibrado em 18/11/2026 num clip de GTA VI: facecam no canto superior esquerdo.
+    # Calibrado em 18/11/2026 em GTA VI. Ele troca a câmera de canto conforme a cena;
+    # a detecção de rosto escolhe a posição certa por clip. Cena de chat (câmera grande,
+    # sem gameplay) não bate com nenhuma e cai no layout blur.
     layout:
       mode: stack
-      facecam: { x: 0.015, y: 0.022, w: 0.215, h: 0.213 }
+      facecam: { x: 0.015, y: 0.022, w: 0.215, h: 0.213 }       # canto superior esquerdo
+      facecam_alternates:
+        - { x: 0.784, y: 0.098, w: 0.213, h: 0.211 }            # canto superior direito
       facecam_ratio: 0.30
 
   - name: Coringa
