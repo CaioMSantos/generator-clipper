@@ -101,7 +101,11 @@ class Pipeline:
     def process_queue(self, now: datetime | None = None) -> int:
         now = now or datetime.now(timezone.utc)
         created_after = now - timedelta(hours=self.settings.lookback_hours)
-        rows = self.store.claim_next(self.settings.max_renders_per_cycle, created_after)
+        rows = self.store.claim_next(
+            self.settings.max_renders_per_cycle,
+            created_after,
+            per_streamer=self.settings.max_renders_per_streamer or None,
+        )
         done = 0
         for row in rows:
             try:

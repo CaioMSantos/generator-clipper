@@ -155,3 +155,16 @@ def test_suggested_caption_has_no_leading_blank_lines_without_title() -> None:
 
     meta = _metadata(dataclasses.replace(make_clip(), title=""), 0.0, [])
     assert str(meta["suggested_caption"]).startswith("Créditos:")
+
+
+def test_claim_is_round_robin_and_capped_per_streamer(tmp_path: Path) -> None:
+    store = Store(tmp_path / "q.sqlite3")
+    for i, score in enumerate([90.0, 80.0, 70.0, 60.0]):  # heavy streamer, all better scores
+        store.upsert_discovered(make_clip(f"a{i}", login="alanzoka", vod_offset=i * 100), score, 1)
+    store.upsert_discovered(make_clip("d0", login="davyjones", platform=Platform.KICK), 5.0, 1)
+    store.upsert_discovered(make_clip("d1", login="davyjones", platform=Platform.KICK), 4.0, 1)
+
+    claimed = store.claim_next(4, NOW - timedelta(hours=6), per_streamer=2)
+    assert [r.clip.id for r in claimed] == ["a0", "d0", "a1", "d1"]
+    # Without a cap the best scores win, as before.
+    assert [r.clip.id for r in store.claim_next(4, NOW - timedelta(hours=6))] == ["a2", "a3"]

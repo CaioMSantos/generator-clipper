@@ -127,20 +127,32 @@ class Store:
                 ),
             )
 
-    def claim_next(self, limit: int, created_after: datetime) -> list[ClipRow]:
+    def claim_next(
+        self, limit: int, created_after: datetime, per_streamer: int | None = None
+    ) -> list[ClipRow]:
         """Atomically moves the best pending clips to RENDERING and returns them.
 
         Clips older than `created_after` are ignored: their score is stale and the moment is gone.
+        With `per_streamer`, at most that many clips per (platform, broadcaster) are claimed and
+        the order is round-robin (every streamer's best first), so one heavily-clipped channel
+        can't take the whole cycle.
         """
+        cap = per_streamer if per_streamer is not None else limit
         with self._tx() as c:
             rows = c.execute(
                 """
-                SELECT * FROM clips
-                WHERE (status = 'discovered' OR (status = 'failed' AND attempts < ?))
-                  AND created_at >= ?
-                ORDER BY score DESC LIMIT ?
+                SELECT * FROM (
+                    SELECT *, ROW_NUMBER() OVER (
+                        PARTITION BY platform, broadcaster ORDER BY score DESC
+                    ) AS rn
+                    FROM clips
+                    WHERE (status = 'discovered' OR (status = 'failed' AND attempts < ?))
+                      AND created_at >= ?
+                )
+                WHERE rn <= ?
+                ORDER BY rn ASC, score DESC LIMIT ?
                 """,
-                (MAX_ATTEMPTS, _iso_utc(created_after), limit),
+                (MAX_ATTEMPTS, _iso_utc(created_after), cap, limit),
             ).fetchall()
             for r in rows:
                 c.execute(
