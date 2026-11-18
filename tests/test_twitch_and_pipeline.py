@@ -168,3 +168,25 @@ def test_claim_is_round_robin_and_capped_per_streamer(tmp_path: Path) -> None:
     assert [r.clip.id for r in claimed] == ["a0", "d0", "a1", "d1"]
     # Without a cap the best scores win, as before.
     assert [r.clip.id for r in store.claim_next(4, NOW - timedelta(hours=6))] == ["a2", "a3"]
+
+
+def test_clips_over_duration_limit_are_dropped(pipeline: Pipeline) -> None:
+    import dataclasses
+
+    short = make_clip("short", vod_offset=100)
+    long_clip = dataclasses.replace(make_clip("long", vod_offset=5000), duration_s=180)
+    unknown = dataclasses.replace(make_clip("unknown", vod_offset=9000), duration_s=0)
+    pipeline.sources = [FakeSource([short, long_clip, unknown])]
+
+    pipeline.discover(NOW)
+    claimed = pipeline.store.claim_next(10, NOW - timedelta(hours=6))
+    assert sorted(r.clip.id for r in claimed) == ["short", "unknown"]
+
+
+def test_queued_long_clip_is_skipped_not_rendered(pipeline: Pipeline) -> None:
+    import dataclasses
+
+    long_clip = dataclasses.replace(make_clip("long"), duration_s=180)
+    pipeline.store.upsert_discovered(long_clip, 10.0, 1)  # queued before the limit existed
+    assert pipeline.process_queue(NOW) == 0
+    assert pipeline.store.statuses([long_clip.key]) == {long_clip.key: ClipStatus.SKIPPED}

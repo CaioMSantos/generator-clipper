@@ -93,6 +93,9 @@ class Settings(BaseSettings):
     lookback_hours: int = Field(default=6, ge=1, le=72, alias="CLIPPER_LOOKBACK_HOURS")
     min_views: int = Field(default=30, ge=0, alias="CLIPPER_MIN_VIEWS")
     max_renders_per_cycle: int = Field(default=4, ge=1, alias="CLIPPER_MAX_RENDERS_PER_CYCLE")
+    # Longer clips are dropped (Kick allows up to 3 min; Shorts/TikTok cuts work best short).
+    # 0 = no limit. Clips with unknown duration (0) are kept.
+    max_clip_seconds: float = Field(default=90, ge=0, alias="CLIPPER_MAX_CLIP_SECONDS")
     # Fairness: one heavily-clipped channel can't take the whole cycle (0 = no per-streamer cap).
     max_renders_per_streamer: int = Field(default=2, ge=0, alias="CLIPPER_MAX_RENDERS_PER_STREAMER")
     game_names: str = Field(default="", alias="CLIPPER_GAME_NAMES")

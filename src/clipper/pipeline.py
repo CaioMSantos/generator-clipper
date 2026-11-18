@@ -83,6 +83,11 @@ class Pipeline:
             except SourceError as exc:
                 log.error("source %s failed: %s", type(source).__name__, exc)
 
+        too_long = [c for c in clips if self._too_long(c)]
+        if too_long:
+            log.info("discover: dropped %d clips longer than %.0fs", len(too_long), self.settings.max_clip_seconds)
+            clips = [c for c in clips if not self._too_long(c)]
+
         ranked = rank(clips, now, min_views=self.min_views_for)
         queued = 0
         for r in ranked:
@@ -111,6 +116,10 @@ class Pipeline:
         )
         done = 0
         for row in rows:
+            if self._too_long(row.clip):  # queued before the limit existed or was lowered
+                log.info("SKIPPED %s: %.0fs is over the duration limit", row.key, row.clip.duration_s)
+                self.store.set_status(row.key, ClipStatus.SKIPPED, error="too long")
+                continue
             try:
                 result = self.render_clip(row.clip, score=row.score)
                 self.store.set_status(row.key, ClipStatus.READY, output_path=str(result.output))
@@ -120,6 +129,10 @@ class Pipeline:
                 log.error("FAILED %s (attempt %d): %s", row.key, row.attempts, exc)
                 self.store.set_status(row.key, ClipStatus.FAILED, error=str(exc)[:1000])
         return done
+
+    def _too_long(self, clip: Clip) -> bool:
+        limit = self.settings.max_clip_seconds
+        return limit > 0 and clip.duration_s > limit
 
     def min_views_for(self, clip: Clip) -> int:
         streamer = self.catalog.find(clip.platform, clip.broadcaster_login)
