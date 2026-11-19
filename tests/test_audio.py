@@ -11,8 +11,15 @@ from clipper.media import MediaError
 from clipper.media import audio
 
 
+_REAL_RUN = subprocess.run
+
+
 def _fake_run(stdout: bytes, returncode: int = 0, stderr: bytes = b"") -> Any:
-    def run(cmd: list[str], **_: Any) -> subprocess.CompletedProcess[bytes]:
+    # The patch is global to the subprocess module, so pass through calls that aren't ours
+    # (e.g. `platform` shelling out to `cmd /c ver` on Windows the first time it is queried).
+    def run(cmd: Any, **kwargs: Any) -> Any:
+        if not (isinstance(cmd, list) and cmd and cmd[0] == "ffmpeg"):
+            return _REAL_RUN(cmd, **kwargs)
         assert "-ar" in cmd and cmd[cmd.index("-ar") + 1] == "16000"
         return subprocess.CompletedProcess(cmd, returncode, stdout=stdout, stderr=stderr)
 
