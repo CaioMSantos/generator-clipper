@@ -75,11 +75,14 @@ streamers:
     platform: kick
     login: coringa
     min_views: 5
-    # Mesma calibração da Twitch (cena de GTA). Conferir com um clip de GTA da Kick.
+    # Calibrado em 19/11/2026 em GTA VI: na Kick a câmera fica à esquerda, no meio da
+    # altura, e sobe/desce um pouco conforme a cena. A detecção escolhe a que enquadra o rosto.
     layout:
       mode: stack
-      facecam: { x: 0.0, y: 0.0, w: 0.31, h: 0.31 }
-      gameplay: { x: 0.31, y: 0.0, w: 0.38, h: 1.0 }
+      facecam: { x: 0.0, y: 0.405, w: 0.25, h: 0.28 }           # missões / cutscenes
+      facecam_alternates:
+        - { x: 0.0, y: 0.455, w: 0.25, h: 0.28 }                 # mundo aberto / dirigindo
+        - { x: 0.0, y: 0.372, w: 0.25, h: 0.25 }                 # cena "contas ativas"
       facecam_ratio: 0.30
 
   - name: Gaules

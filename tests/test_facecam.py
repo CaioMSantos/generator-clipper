@@ -26,8 +26,11 @@ def _frame(face_at: str | None) -> Any:
     return f
 
 
-def _bright_detector(crop: Any) -> bool:
-    return bool(crop.size and crop.max() == 255)
+def _bright_detector(crop: Any) -> tuple[float, float] | None:
+    if not crop.size or crop.max() != 255:
+        return None
+    ys, xs = np.nonzero(crop.max(axis=2) == 255)
+    return (float(xs.mean()) / crop.shape[1], float(ys.mean()) / crop.shape[0])
 
 
 def test_choose_candidate_threshold_and_ties() -> None:
@@ -36,6 +39,22 @@ def test_choose_candidate_threshold_and_ties() -> None:
     assert choose_candidate([1, 1], samples=6) is None  # below 2/6
     assert choose_candidate([], samples=6) is None
     assert choose_candidate([5], samples=0) is None
+
+
+def test_choose_candidate_prefers_best_framed_face_among_overlapping_boxes() -> None:
+    # Both boxes see the face; the second frames it better.
+    assert choose_candidate([6, 6], samples=6, misfit=[0.30, 0.05]) == 1
+    # One hit less but much better framed still wins; two hits less does not.
+    assert choose_candidate([6, 5], samples=6, misfit=[0.30, 0.05]) == 1
+    assert choose_candidate([6, 4], samples=6, misfit=[0.30, 0.05]) == 0
+
+
+def test_pick_facecam_picks_the_box_that_centers_the_face() -> None:
+    f = np.zeros((100, 100, 3), dtype=np.uint8)
+    f[50:60, 10:20] = 255  # face around y=55
+    high = Rect(x=0.0, y=0.30, w=0.30, h=0.30)  # face lands at ~0.83 of the box (bottom)
+    centered = Rect(x=0.0, y=0.40, w=0.30, h=0.30)  # face at ~0.5 of the box
+    assert pick_facecam(Path("x.mp4"), [high, centered], _bright_detector, [f] * 6) == centered
 
 
 def test_pick_facecam_follows_the_face() -> None:
