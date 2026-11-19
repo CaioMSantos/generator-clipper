@@ -9,37 +9,52 @@
 </head>
 <body>
   <div class="app">
-    <aside class="sidebar">
-      <div class="brand">
-        <div class="brand-mark">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5l11 7-11 7z" fill="currentColor"/></svg>
-        </div>
-        <div>
-          <div class="brand-name">Clipper</div>
-          <div class="brand-sub">GTA VI · cortes</div>
+    <aside class="sidebar" id="sidebar" aria-label="Navegação">
+      <div class="rail-top">
+        <button class="rail-btn" id="collapse" data-tip="Expandir menu" aria-label="Expandir ou recolher menu">
+          <svg class="ico-expand" viewBox="0 0 24 24"><path d="M4 12h12"/><path d="M12 8l4 4-4 4"/><path d="M20 5v14"/></svg>
+        </button>
+        <div class="brand">
+          <div class="brand-mark">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5l11 7-11 7z" fill="currentColor"/></svg>
+          </div>
+          <div class="lbl">
+            <div class="brand-name">Clipper</div>
+            <div class="brand-sub">GTA VI · cortes</div>
+          </div>
         </div>
       </div>
 
       <nav class="nav" id="status-nav" aria-label="Status"></nav>
 
       <div class="side-section">
-        <div class="side-title">Streamers</div>
+        <div class="side-title"><span class="lbl">Streamers</span><span class="rule"></span></div>
         <div id="streamer-list" class="streamer-list"></div>
       </div>
 
       <div class="side-foot">
-        <div class="pulse-row">
-          <span class="pulse" id="pulse"></span>
-          <span id="last-activity">carregando…</span>
+        <div class="rail-item static" id="activity" data-tip="">
+          <span class="rail-ico"><span class="pulse" id="pulse"></span></span>
+          <span class="lbl" id="last-activity">carregando…</span>
         </div>
-        <div class="folder" id="output-dir" title="Pasta dos vídeos"></div>
-        <div class="folder">Aperte <kbd>?</kbd> para ver os atalhos</div>
+        <button class="rail-item" id="copy-folder" data-tip="Copiar pasta dos vídeos">
+          <span class="rail-ico"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>
+          <span class="lbl folder" id="output-dir"></span>
+        </button>
+        <button class="rail-item" id="show-help" data-tip="Atalhos (?)">
+          <span class="rail-ico"><svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg></span>
+          <span class="lbl">Atalhos do teclado</span>
+        </button>
       </div>
     </aside>
+    <div class="scrim" id="scrim"></div>
 
     <main class="main">
       <header class="topbar">
         <div class="topbar-title">
+          <button class="icon-btn menu-btn" id="menu" aria-label="Abrir menu">
+            <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
+          </button>
           <h1 id="view-title">Para revisar</h1>
           <span class="count-pill" id="view-count">0</span>
         </div>
@@ -193,6 +208,7 @@
         <dt>Espaço</dt><dd>Play / pause</dd>
         <dt>I / O</dt><dd>Marcar início / fim no tempo atual</dd>
         <dt>/</dt><dd>Buscar</dd>
+        <dt>[</dt><dd>Recolher / expandir o menu</dd>
         <dt>Esc</dt><dd>Fechar</dd>
       </dl>
     </div>

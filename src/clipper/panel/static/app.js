@@ -1,14 +1,23 @@
 "use strict";
 
 // ---------------------------------------------------------------- config
+const ICONS = {
+  ready: '<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
+  approved: '<circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/>',
+  posted: '<path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/>',
+  rejected: '<circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/>',
+  rendering: '<path d="M21 12a9 9 0 1 1-6.2-8.56"/>',
+  failed: '<path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/>',
+  all: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+};
 const STATUSES = [
-  { id: "ready", label: "Para revisar", color: "var(--warn)" },
+  { id: "ready", label: "Para revisar", color: "var(--warn)", notify: true },
   { id: "approved", label: "Aprovados", color: "var(--ok)" },
   { id: "posted", label: "Postados", color: "var(--info)" },
   { id: "rejected", label: "Rejeitados", color: "var(--bad)" },
   { id: "rendering", label: "Renderizando", color: "#b9dbff" },
-  { id: "failed", label: "Falhas", color: "#ff8b8e" },
-  { id: "", label: "Todos", color: "var(--faint)" },
+  { id: "failed", label: "Falhas", color: "#ff8b8e", notify: true },
+  { id: "", label: "Todos", color: "var(--muted)" },
 ];
 const STATUS_LABEL = {
   ready: "revisar", approved: "aprovado", posted: "postado", rejected: "rejeitado",
@@ -128,46 +137,84 @@ async function refreshAll() {
 // ---------------------------------------------------------------- sidebar & stats
 function renderSidebar() {
   const counts = state.stats?.by_status || {};
-  const total = Object.entries(counts)
-    .filter(([k]) => ["ready", "approved", "posted", "rejected", "rendering", "failed"].includes(k))
-    .reduce((a, [, v]) => a + v, 0);
-  const nav = $("#status-nav");
-  nav.replaceChildren(...STATUSES.map((s) => el("button", {
-    class: state.status === s.id ? "on" : "",
-    onclick: () => { state.status = s.id; closeDrawer(); loadClips({ keepOpen: false }); renderSidebar(); },
-  },
-    el("span", { class: "dot", style: `background:${s.color}` }),
-    el("span", { class: "label", text: s.label }),
-    el("span", { class: "n", text: fmtNum(s.id ? counts[s.id] || 0 : total) }),
-  )));
+  const total = ["ready", "approved", "posted", "rejected", "rendering", "failed"].reduce((a, k) => a + (counts[k] || 0), 0);
+  $("#status-nav").replaceChildren(...STATUSES.map((s) => {
+    const n = s.id ? counts[s.id] || 0 : total;
+    return el("button", {
+      class: `rail-item ${state.status === s.id ? "on" : ""}`,
+      style: `--item-color:${s.color}`,
+      "data-tip": `${s.label} · ${fmtNum(n)}`,
+      "aria-label": s.label,
+      onclick: () => { state.status = s.id; closeDrawer(); closeMobileMenu(); loadClips({ keepOpen: false }); renderSidebar(); },
+    },
+      el("span", { class: "rail-ico" },
+        svg(ICONS[s.id || "all"]),
+        s.notify && n > 0 ? el("span", { class: "notif" }) : null),
+      el("span", { class: "lbl", text: s.label }),
+      el("span", { class: "n", text: fmtNum(n) }),
+    );
+  }));
 
-  const list = $("#streamer-list");
   const streamers = state.stats?.streamers || [];
-  list.replaceChildren(
-    el("button", { class: `streamer ${state.streamer ? "" : "on"}`, onclick: () => setStreamer("") },
-      el("span", { class: "avatar", style: "background:var(--panel-2);color:var(--muted)" }, "∗"),
-      el("span", { class: "name", text: "Todos" })),
+  const pending = streamers.reduce((a, s) => a + s.to_review, 0);
+  $("#streamer-list").replaceChildren(
+    el("button", {
+      class: `rail-item ${state.streamer ? "" : "on"}`, "data-tip": "Todos os streamers", onclick: () => setStreamer(""),
+    },
+      el("span", { class: "rail-ico" }, el("span", { class: "avatar all", text: "∗" }), pending ? el("span", { class: "notif" }) : null),
+      el("span", { class: "lbl", text: "Todos" }),
+    ),
     ...streamers.map((s) => el("button", {
-      class: `streamer ${state.streamer === s.login ? "on" : ""}`,
-      title: `${s.name} · ${s.platform}`,
+      class: `rail-item ${state.streamer === s.login ? "on" : ""}`,
+      "data-tip": `${s.name} · ${s.platform}${s.to_review ? ` · ${s.to_review} p/ revisar` : ""}`,
       onclick: () => setStreamer(s.login),
     },
-      el("span", { class: `avatar ${s.platform}`, text: initials(s.name) }),
-      el("span", { class: "name" }, s.name, el("span", { class: "plat", text: s.platform })),
-      el("span", { class: `badge ${s.to_review ? "" : "zero"}`, text: String(s.to_review) }),
+      el("span", { class: "rail-ico" },
+        el("span", { class: `avatar ${s.platform}`, text: initials(s.name) }),
+        s.to_review ? el("span", { class: "notif" }) : null),
+      el("span", { class: "lbl" }, s.name, el("span", { class: "plat", text: s.platform })),
+      s.to_review ? el("span", { class: "count-badge", text: String(s.to_review) }) : null,
     )),
   );
 
   const last = state.stats?.last_activity;
   const ageS = last ? (Date.now() - new Date(last).getTime()) / 1000 : Infinity;
   $("#pulse").className = `pulse ${ageS < 600 ? "live" : "idle"}`;
-  $("#last-activity").textContent = last ? `Última atividade ${ago(last)}` : "Sem atividade ainda";
+  const activity = last ? `Loop ativo ${ago(last)}` : "Sem atividade ainda";
+  $("#last-activity").textContent = activity;
+  $("#activity").dataset.tip = activity;
   $("#output-dir").textContent = state.stats?.output_dir || "";
 }
+
+// ---------------------------------------------------------------- sidebar collapse / mobile menu
+const COLLAPSE_KEY = "clipper.sidebar.collapsed";
+function setCollapsed(collapsed) {
+  $(".app").classList.toggle("collapsed", collapsed);
+  $("#collapse").dataset.tip = collapsed ? "Expandir menu" : "Recolher menu";
+  try { localStorage.setItem(COLLAPSE_KEY, collapsed ? "1" : "0"); } catch { /* private mode */ }
+}
+function initCollapsed() {
+  let saved = null;
+  try { saved = localStorage.getItem(COLLAPSE_KEY); } catch { /* private mode */ }
+  // Default: collapsed on laptop-sized screens, expanded on wide monitors.
+  setCollapsed(saved === null ? window.innerWidth < 1400 : saved === "1");
+}
+function closeMobileMenu() { $(".app").classList.remove("mobile-open"); }
+$("#collapse").addEventListener("click", () => setCollapsed(!$(".app").classList.contains("collapsed")));
+$("#menu").addEventListener("click", () => $(".app").classList.add("mobile-open"));
+$("#scrim").addEventListener("click", closeMobileMenu);
+$("#show-help").addEventListener("click", () => { closeMobileMenu(); $("#help").classList.remove("hidden"); });
+$("#copy-folder").addEventListener("click", async () => {
+  const path = state.stats?.output_dir;
+  if (!path) return;
+  try { await navigator.clipboard.writeText(path); toast("📁 Caminho da pasta copiado", "ok"); }
+  catch { toast(path); }
+});
 
 function setStreamer(login) {
   state.streamer = state.streamer === login ? "" : login;
   closeDrawer();
+  closeMobileMenu();
   renderSidebar();
   loadClips({ keepOpen: false });
 }
@@ -541,6 +588,7 @@ document.addEventListener("keydown", (e) => {
   const key = e.key.toLowerCase();
   if (key === "/") { e.preventDefault(); $("#search").focus(); return; }
   if (key === "?") { $("#help").classList.toggle("hidden"); return; }
+  if (key === "[") { setCollapsed(!$(".app").classList.contains("collapsed")); return; }
   if (!open) {
     if ((key === "enter" || key === "arrowright") && state.clips.length) { e.preventDefault(); openDrawer(0); }
     return;
@@ -563,6 +611,7 @@ document.addEventListener("keydown", (e) => {
 $("#help").addEventListener("click", () => $("#help").classList.add("hidden"));
 
 // ---------------------------------------------------------------- boot
+initCollapsed();
 refreshAll();
 pollJobs();
 setInterval(() => {
