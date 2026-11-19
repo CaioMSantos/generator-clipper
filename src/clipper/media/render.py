@@ -120,6 +120,7 @@ def render_vertical(
     *,
     hook: HookOverlay | None = None,
     font: FontSpec | None = None,
+    trim: tuple[float, float] | None = None,
 ) -> Path:
     """Renders `source` into a 9:16 mp4 at `output`.
 
@@ -144,9 +145,18 @@ def render_vertical(
         else []
     )
 
+    trim_args: list[str] = []
+    if trim is not None:
+        start, end = trim
+        if start < 0 or end <= start:
+            raise MediaError(f"invalid trim {trim!r}")
+        # Input seeking: fast and frame-accurate with re-encoding; output timestamps start at 0.
+        trim_args = ["-ss", f"{start:.3f}", "-to", f"{end:.3f}"]
+
     tmp_out = output.with_suffix(".tmp.mp4")
     cmd = [
         ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
+        *trim_args,
         "-i", str(source.resolve()),
         *hook_input,
         "-filter_complex", build_filtergraph(

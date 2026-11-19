@@ -152,8 +152,13 @@ class Pipeline:
         layout: Layout | None = None,
         captions: bool = True,
         hook_text: str | None = None,
+        trim: tuple[float, float] | None = None,
     ) -> RenderResult:
-        """Downloads, transcribes, writes the hook and renders. `hook_text` overrides the AI hook."""
+        """Downloads, transcribes, writes the hook and renders.
+
+        `hook_text`: None asks the AI, "" renders without a hook, anything else is used as is.
+        `trim`: (start, end) in seconds of the source clip.
+        """
         s = self.settings
         basename = f"{clip.platform.value}_{_safe(clip.id)}"
         source = download_clip(clip.url, s.downloads_dir, basename)
@@ -166,10 +171,17 @@ class Pipeline:
                 # A clip without captions is still worth reviewing; don't lose the moment.
                 log.warning("captions skipped for %s: %s", clip.key, exc)
 
+        if trim is not None:
+            words = shift_words(words, *trim)
+
         transcript = " ".join(w.text for w in words)
-        hook = hook_text.strip().upper() if hook_text else None
-        if hook is None and self.hook_writer is not None:
+        hook: str | None
+        if hook_text is not None:
+            hook = hook_text.strip().upper() or None
+        elif self.hook_writer is not None:
             hook = self.hook_writer.write(clip, transcript)  # never raises; None on failure
+        else:
+            hook = None
 
         day = clip.created_at.astimezone(timezone.utc).strftime("%Y-%m-%d")
         out_dir = s.output_dir / day
@@ -187,13 +199,14 @@ class Pipeline:
                 work_dir,
                 hook=overlay,
                 font=self.font,
+                trim=trim,
             )
         finally:
             shutil.rmtree(work_dir, ignore_errors=True)
 
         metadata = output.with_suffix(".json")
         metadata.write_text(
-            json.dumps(_metadata(clip, score, words, hook), ensure_ascii=False, indent=2),
+            json.dumps(_metadata(clip, score, words, hook, trim), ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
         return RenderResult(output=output, metadata=metadata, words=len(words), hook=hook)
@@ -234,12 +247,26 @@ class Pipeline:
         return discovered, rendered
 
 
+def shift_words(words: list[Word], start: float, end: float) -> list[Word]:
+    """Keeps the words inside [start, end] and rebases their timestamps to the trimmed clip."""
+    out: list[Word] = []
+    for w in words:
+        if w.end <= start or w.start >= end:
+            continue
+        out.append(Word(text=w.text, start=max(w.start, start) - start, end=min(w.end, end) - start))
+    return out
+
+
 def _safe(value: str) -> str:
     return "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in value)[:80]
 
 
 def _metadata(
-    clip: Clip, score: float, words: list[Word], hook: str | None = None
+    clip: Clip,
+    score: float,
+    words: list[Word],
+    hook: str | None = None,
+    trim: tuple[float, float] | None = None,
 ) -> dict[str, object]:
     channel = (
         f"twitch.tv/{clip.broadcaster_login}"
@@ -256,6 +283,7 @@ def _metadata(
         "score": score,
         "created_at": clip.created_at.isoformat(),
         "hook": hook,
+        "trim": list(trim) if trim else None,
         "suggested_title": hook or clip.title,
         "suggested_caption": "\n\n".join(
             part for part in ((hook or clip.title).strip(), f"Créditos: {channel}", " ".join(tags)) if part

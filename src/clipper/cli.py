@@ -156,6 +156,18 @@ def cmd_set_status(settings: Settings, key: str, status: str) -> int:
     return 0
 
 
+def cmd_panel(settings: Settings, host: str, port: int) -> int:
+    import uvicorn  # only needed for the panel
+
+    from clipper.panel.app import create_app
+
+    catalog = load_catalog(settings.streamers_file)
+    app = create_app(settings, catalog, lambda: _build(settings, need_sources=False))
+    log.info("panel: http://%s:%d", host, port)
+    uvicorn.run(app, host=host, port=port, log_level="warning")
+    return 0
+
+
 def _clip_id_from_url(url: str) -> str:
     tail = url.rstrip("/").split("?clip=")[-1].split("/")[-1].split("?")[0]
     return tail or str(int(time.time()))
@@ -174,6 +186,10 @@ def main(argv: list[str] | None = None) -> int:
     p_render.add_argument("--streamer", help="login do streamer (usa o layout configurado)")
     p_render.add_argument("--no-captions", action="store_true")
     p_render.add_argument("--hook", help="texto do gancho (pula a geração por IA)")
+
+    p_panel = sub.add_parser("panel", help="abre o painel de revisão no navegador")
+    p_panel.add_argument("--host", default="127.0.0.1")
+    p_panel.add_argument("--port", type=int, default=8000)
 
     p_frame = sub.add_parser("frame", help="salva um PNG do clip para calibrar o layout")
     p_frame.add_argument("url")
@@ -204,6 +220,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_run(settings, args.once)
         if args.cmd == "render":
             return cmd_render(settings, args.url, args.streamer, not args.no_captions, args.hook)
+        if args.cmd == "panel":
+            return cmd_panel(settings, args.host, args.port)
         if args.cmd == "frame":
             return cmd_frame(settings, args.url, args.at)
         if args.cmd == "list":

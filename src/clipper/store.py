@@ -59,6 +59,7 @@ class ClipRow:
     output_path: str | None
     error: str | None
     attempts: int
+    updated_at: datetime | None = None
 
 
 class Store:
@@ -195,6 +196,42 @@ class Store:
             ).fetchall()
         return [self._row(r) for r in rows]
 
+    def list_by_statuses(
+        self, statuses: list[ClipStatus], streamer: str | None = None, limit: int = 200
+    ) -> list[ClipRow]:
+        """Newest activity first; used by the review panel."""
+        if not statuses:
+            return []
+        placeholders = ",".join("?" * len(statuses))
+        sql = f"SELECT * FROM clips WHERE status IN ({placeholders})"
+        params: list[object] = [s.value for s in statuses]
+        if streamer:
+            sql += " AND broadcaster = ?"
+            params.append(streamer.lower())
+        sql += " ORDER BY updated_at DESC, score DESC LIMIT ?"
+        params.append(limit)
+        return [self._row(r) for r in self._conn.execute(sql, params).fetchall()]
+
+    def count_by_status(self) -> dict[ClipStatus, int]:
+        rows = self._conn.execute("SELECT status, COUNT(*) AS n FROM clips GROUP BY status").fetchall()
+        return {ClipStatus(r["status"]): int(r["n"]) for r in rows}
+
+    def count_by_streamer(self, statuses: list[ClipStatus]) -> dict[tuple[str, str], int]:
+        """(platform, broadcaster) -> clips in the given statuses."""
+        if not statuses:
+            return {}
+        placeholders = ",".join("?" * len(statuses))
+        rows = self._conn.execute(
+            f"SELECT platform, broadcaster, COUNT(*) AS n FROM clips WHERE status IN ({placeholders}) "
+            "GROUP BY platform, broadcaster",
+            [s.value for s in statuses],
+        ).fetchall()
+        return {(r["platform"], r["broadcaster"]): int(r["n"]) for r in rows}
+
+    def last_activity(self) -> datetime | None:
+        r = self._conn.execute("SELECT MAX(updated_at) AS t FROM clips").fetchone()
+        return datetime.fromisoformat(r["t"]) if r and r["t"] else None
+
     def statuses(self, keys: list[str]) -> dict[str, ClipStatus]:
         if not keys:
             return {}
@@ -232,4 +269,5 @@ class Store:
             output_path=r["output_path"],
             error=r["error"],
             attempts=r["attempts"],
+            updated_at=datetime.fromisoformat(r["updated_at"]) if r["updated_at"] else None,
         )

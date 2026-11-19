@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Clipper · Painel</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23ff3d7f'/%3E%3Cpath d='M12 9l12 7-12 7z' fill='white'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5l11 7-11 7z" fill="currentColor"/></svg>
+        </div>
+        <div>
+          <div class="brand-name">Clipper</div>
+          <div class="brand-sub">GTA VI · cortes</div>
+        </div>
+      </div>
+
+      <nav class="nav" id="status-nav" aria-label="Status"></nav>
+
+      <div class="side-section">
+        <div class="side-title">Streamers</div>
+        <div id="streamer-list" class="streamer-list"></div>
+      </div>
+
+      <div class="side-foot">
+        <div class="pulse-row">
+          <span class="pulse" id="pulse"></span>
+          <span id="last-activity">carregando…</span>
+        </div>
+        <div class="folder" id="output-dir" title="Pasta dos vídeos"></div>
+        <div class="folder">Aperte <kbd>?</kbd> para ver os atalhos</div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="topbar-title">
+          <h1 id="view-title">Para revisar</h1>
+          <span class="count-pill" id="view-count">0</span>
+        </div>
+        <div class="topbar-actions">
+          <label class="search">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+            <input id="search" type="search" placeholder="Buscar por título, gancho ou fala…  ( / )" autocomplete="off" />
+          </label>
+          <button class="jobs-pill hidden" id="jobs-pill" title="Re-renders em andamento">
+            <span class="spinner"></span><span id="jobs-text"></span>
+          </button>
+          <button class="icon-btn" id="refresh" title="Atualizar">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <section class="stats" id="stats"></section>
+
+      <section class="grid" id="grid" aria-live="polite"></section>
+      <div class="empty hidden" id="empty">
+        <div class="empty-art">🎬</div>
+        <div class="empty-title">Nada por aqui</div>
+        <div class="empty-sub">Quando o loop renderizar novos cortes, eles aparecem aqui sozinhos.</div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Detail drawer -->
+  <div class="overlay hidden" id="overlay"></div>
+  <section class="drawer" id="drawer" aria-hidden="true" role="dialog" aria-label="Detalhes do corte">
+    <div class="drawer-head">
+      <div class="drawer-nav">
+        <button class="icon-btn" id="prev" title="Anterior (←)"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button>
+        <button class="icon-btn" id="next" title="Próximo (→)"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
+        <span class="drawer-pos" id="drawer-pos"></span>
+      </div>
+      <button class="icon-btn" id="close" title="Fechar (Esc)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+
+    <div class="drawer-body">
+      <div class="player-col">
+        <div class="player-frame">
+          <video id="player" controls playsinline preload="metadata"></video>
+          <div class="player-missing hidden" id="player-missing">Vídeo não encontrado na pasta</div>
+        </div>
+      </div>
+
+      <div class="info-col">
+        <div class="info-head">
+          <div class="who">
+            <span class="avatar" id="d-avatar"></span>
+            <div>
+              <div class="who-name" id="d-streamer"></div>
+              <div class="who-sub" id="d-sub"></div>
+            </div>
+          </div>
+          <span class="status-pill" id="d-status"></span>
+        </div>
+
+        <h2 class="d-title" id="d-title"></h2>
+        <div class="metrics" id="d-metrics"></div>
+
+        <div class="actions">
+          <button class="btn btn-approve" data-status="approved"><kbd>A</kbd> Aprovar</button>
+          <button class="btn btn-reject" data-status="rejected"><kbd>X</kbd> Rejeitar</button>
+          <button class="btn btn-posted" data-status="posted"><kbd>P</kbd> Postado</button>
+          <button class="btn btn-ghost" data-status="ready" title="Voltar para revisão"><kbd>U</kbd> Desfazer</button>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <span>Legenda sugerida</span>
+            <button class="link-btn" id="copy-caption"><kbd>C</kbd> Copiar</button>
+          </div>
+          <textarea id="d-caption" rows="5" spellcheck="false"></textarea>
+          <div class="row-links">
+            <a id="d-download" class="link-btn" href="#">⬇ Baixar MP4</a>
+            <a id="d-source" class="link-btn" href="#" target="_blank" rel="noopener">↗ Clip original</a>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><span>Editar e re-renderizar</span></div>
+
+          <label class="field">
+            <span>Gancho (caixa branca nos primeiros 4s)</span>
+            <input id="hook" type="text" maxlength="60" placeholder="Ex.: 30 MIL NO PORTA-MALAS, FUGA A PÉ?" />
+          </label>
+          <div class="seg" id="hook-mode">
+            <button data-mode="text" class="on">Usar este texto</button>
+            <button data-mode="ai">Gerar com IA</button>
+            <button data-mode="none">Sem gancho</button>
+          </div>
+
+          <div class="trim">
+            <div class="trim-head">
+              <span>Corte</span>
+              <span class="trim-len" id="trim-len"></span>
+            </div>
+            <div class="trim-bar" id="trim-bar">
+              <div class="trim-sel" id="trim-sel"></div>
+              <div class="trim-head-marker" id="trim-playhead"></div>
+            </div>
+            <div class="trim-controls">
+              <div class="trim-field">
+                <span>Início</span>
+                <input id="trim-start" type="number" min="0" step="0.1" />
+                <button class="link-btn" id="set-start" title="Usar o tempo atual do player (I)"><kbd>I</kbd> agora</button>
+              </div>
+              <div class="trim-field">
+                <span>Fim</span>
+                <input id="trim-end" type="number" min="0" step="0.1" />
+                <button class="link-btn" id="set-end" title="Usar o tempo atual do player (O)"><kbd>O</kbd> agora</button>
+              </div>
+              <button class="link-btn" id="trim-reset">Limpar</button>
+            </div>
+          </div>
+
+          <label class="toggle">
+            <input type="checkbox" id="captions" checked />
+            <span class="toggle-ui"></span>
+            <span>Legendas</span>
+          </label>
+
+          <button class="btn btn-primary wide" id="rerender">Re-renderizar</button>
+        </div>
+
+        <details class="card transcript">
+          <summary>Transcrição</summary>
+          <p id="d-transcript"></p>
+        </details>
+
+        <div class="error-box hidden" id="d-error"></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="toasts" id="toasts"></div>
+
+  <div class="help hidden" id="help">
+    <div class="help-card">
+      <h3>Atalhos</h3>
+      <dl>
+        <dt>← →</dt><dd>Corte anterior / próximo</dd>
+        <dt>A</dt><dd>Aprovar</dd>
+        <dt>X</dt><dd>Rejeitar</dd>
+        <dt>P</dt><dd>Marcar como postado</dd>
+        <dt>U</dt><dd>Voltar para revisão</dd>
+        <dt>C</dt><dd>Copiar legenda</dd>
+        <dt>Espaço</dt><dd>Play / pause</dd>
+        <dt>I / O</dt><dd>Marcar início / fim no tempo atual</dd>
+        <dt>/</dt><dd>Buscar</dd>
+        <dt>Esc</dt><dd>Fechar</dd>
+      </dl>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
