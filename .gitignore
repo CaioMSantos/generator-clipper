@@ -51,3 +51,6 @@ desktop.ini
 # ---- Claude Code (local worktrees and personal settings) ---------------------
 .claude/worktrees/
 .claude/settings.local.json
+
+# ---- private Claude Code context (owner, business, local setup) -------------
+CLAUDE.local.md
