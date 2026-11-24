@@ -1,8 +1,14 @@
 .env
+.env.*
+!.env.example
 data/
+Clips/
 .git/
 .venv/
+.claude/
 **/__pycache__/
 .mypy_cache/
 .pytest_cache/
+.ruff_cache/
 tests/
+*.mp4

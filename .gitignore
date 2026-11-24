@@ -1,8 +1,53 @@
+# ---- secrets ----------------------------------------------------------------
 .env
+.env.*
+!.env.example
+
+# ---- runtime data (queue DB, downloads, renders, frames) ---------------------
 data/
+Clips/
+*.sqlite3
+*.sqlite3-*
+*.tmp.mp4
+
+# Media never belongs in git (third-party streams; also huge)
+*.mp4
+*.mkv
+*.webm
+*.m3u8
+*.ts
+
+# Fonts you drop into assets/fonts locally (commit only OFL/redistributable ones on purpose)
+assets/fonts/*.ttf
+assets/fonts/*.otf
+
+# ---- python -----------------------------------------------------------------
 __pycache__/
+*.py[cod]
 *.egg-info/
+build/
+dist/
+.venv/
+venv/
 .mypy_cache/
 .pytest_cache/
-.venv/
-Clips/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# ---- whisper / huggingface model cache (if pointed inside the repo) ----------
+models/
+.cache/
+
+# ---- editors & OS ------------------------------------------------------------
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- Claude Code (local worktrees and personal settings) ---------------------
+.claude/worktrees/
+.claude/settings.local.json

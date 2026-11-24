@@ -1,16 +1,30 @@
+x-clipper: &clipper
+  build:
+    context: .
+    args:
+      WHISPER_MODEL: small
+  env_file: .env
+  volumes:
+    - ./data:/app/data
+    - ./config:/app/config:ro
+  restart: unless-stopped
+
 services:
+  # Discovery + render loop.
   clipper:
-    build:
-      context: .
-      args:
-        WHISPER_MODEL: small
-    env_file: .env
-    volumes:
-      - ./data:/app/data
-      - ./config:/app/config:ro
-    restart: unless-stopped
+    <<: *clipper
+    command: ["run"]
     deploy:
       resources:
         limits:
           cpus: "4"
           memory: 6g
+
+  # Review panel on http://localhost:8000 (no auth: keep it on localhost or behind a proxy with auth).
+  panel:
+    <<: *clipper
+    command: ["panel", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      - clipper
