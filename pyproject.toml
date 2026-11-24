@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=69"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,6 +7,8 @@ name = "gta6-clipper"
 version = "0.1.0"
 description = "Pipeline de cortes automáticos (Twitch/Kick -> 9:16 legendado) para TikTok/Shorts"
 requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = [
     "httpx>=0.27",
     "pydantic>=2.7",

@@ -16,6 +16,7 @@ legenda palavra por palavra, escreve um título-gancho com IA e entrega tudo num
 ![OpenCV](https://img.shields.io/badge/OpenCV-facecam-5C3EE8?logo=opencv&logoColor=white)
 ![mypy](https://img.shields.io/badge/mypy-strict-2A6DB2)
 ![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 </div>
 
@@ -268,3 +269,7 @@ Este projeto automatiza **edição**, não autoriza o uso do conteúdo de ningu�
 
 Issues e PRs são bem-vindos. Antes de abrir um PR, rode `pytest -q` e `mypy --strict src tests`.
 Pra adicionar uma plataforma, implemente o protocolo `ClipSource` em `src/clipper/sources/`.
+
+## 📄 Licença
+
+[MIT](LICENSE) — vale para o **código** deste repositório, não para os vídeos, lives ou jogos processados por ele (veja [Uso responsável](#️-uso-responsável)).
