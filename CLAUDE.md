@@ -46,6 +46,7 @@ Escolha da linguagem: Python de ponta a ponta porque o ecossistema necessário (
 | `media/audio.py` | Decodifica o áudio com ffmpeg (16 kHz mono) para o Whisper, sem PyAV |
 | `panel/` | Painel de revisão: FastAPI (`app.py`) + SPA estática sem build (`static/`). Lista/filtra clips, player 9:16, aprovar/rejeitar/postado (atalhos A/X/P/U), copiar legenda, re-render em background (`jobs.py`, 1 por vez) com gancho novo e corte início/fim. Cada request abre o próprio `Store` |
 | `panel/connections.py` | Tela Conexões: `EnvStore` (edita o `.env` preservando comentários, escrita atômica), `ConnectionTester` (Twitch token, Kick canal, Anthropic `models.list`), `CatalogEditor` (ruamel round-trip no `streamers.yaml`, valida pelo schema antes de gravar). Segredos nunca voltam ao navegador (só `••••1234`). O app tem middleware: `Host` local + escrita só com `X-Clipper-Panel: 1` e mesma origem |
+| `panel` calibração | Editor visual (`/api/streamers/{p}/{login}/clips·frame·layout·detect`): frame real via `extract_frame` (baixa o clip se preciso), retângulos arrastáveis, prévia 9:16 em canvas com a mesma matemática do `_fill` do ffmpeg, `score_candidates` para testar a detecção, `CatalogEditor.set_layout` grava o layout in-place |
 | `cli.py` | `run [--once]`, `panel [--host --port]`, `render <url> [--streamer] [--hook]`, `frame <url>`, `list [--status]`, `set-status <key> <status>`. Tem shutdown gracioso com SIGINT/SIGTERM. O `run` recarrega `.env`/`streamers.yaml` quando o mtime muda (editados pelo painel) |
 
 ### Config

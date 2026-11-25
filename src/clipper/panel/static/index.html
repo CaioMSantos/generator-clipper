@@ -234,6 +234,64 @@
     </div>
   </section>
 
+  <!-- Calibration editor -->
+  <section class="calib hidden" id="calib" role="dialog" aria-label="Calibrar layout">
+    <div class="calib-head">
+      <div class="calib-title">
+        <span class="avatar" id="cb-avatar"></span>
+        <div>
+          <div class="calib-name"><span class="crumb">calibrar ›</span> <span id="cb-name"></span></div>
+          <div class="calib-sub" id="cb-sub"></div>
+        </div>
+      </div>
+      <div class="calib-head-actions">
+        <div class="seg seg-mini" id="cb-mode">
+          <button data-mode="stack">stack</button>
+          <button data-mode="blur">blur</button>
+        </div>
+        <button class="icon-btn" id="cb-close" title="Fechar (Esc)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+    </div>
+
+    <div class="calib-body">
+      <div class="calib-main">
+        <div class="calib-toolbar">
+          <select id="cb-clip" aria-label="Clip de referência"></select>
+          <label class="cb-time">
+            <span>t=</span><input id="cb-at" type="range" min="0" max="60" step="0.5" value="4" /><b id="cb-at-val">4.0s</b>
+          </label>
+        </div>
+        <div class="stage-wrap">
+          <div class="stage" id="cb-stage">
+            <img id="cb-img" alt="Frame do clip" draggable="false" />
+            <div class="stage-loading hidden" id="cb-loading"><span class="spinner"></span> carregando frame…</div>
+            <div id="cb-rects"></div>
+          </div>
+        </div>
+        <div class="calib-tools">
+          <button class="btn btn-ghost" id="cb-add-cam" type="button">+ posição de câmera</button>
+          <button class="btn btn-ghost" id="cb-toggle-game" type="button">+ área de gameplay</button>
+          <button class="btn btn-ghost" id="cb-remove" type="button">remover selecionado</button>
+          <span class="calib-hint">arraste para mover · puxe os cantos para redimensionar · <kbd>Del</kbd> remove</span>
+        </div>
+      </div>
+
+      <aside class="calib-side">
+        <div class="card-head"><span>prévia 9:16</span><span class="preview-of" id="cb-preview-of"></span></div>
+        <div class="preview-frame"><canvas id="cb-preview" width="270" height="480"></canvas></div>
+        <label class="cb-ratio" id="cb-ratio-row">
+          <span>altura da câmera</span>
+          <input id="cb-ratio" type="range" min="0.15" max="0.5" step="0.01" value="0.3" />
+          <b id="cb-ratio-val">30%</b>
+        </label>
+        <button class="btn btn-ghost wide" id="cb-detect" type="button">Testar detecção neste clip</button>
+        <div class="conn-result hidden" id="cb-detect-out"></div>
+        <button class="btn btn-primary wide" id="cb-save" type="button">Salvar layout</button>
+        <div class="calib-note">grava no <code>streamers.yaml</code> · o loop aplica no próximo ciclo</div>
+      </aside>
+    </div>
+  </section>
+
   <div class="toasts" id="toasts"></div>
 
   <div class="help hidden" id="help">

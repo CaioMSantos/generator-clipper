@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import math
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -118,19 +119,27 @@ def sample_frames(source: Path, samples: int = SAMPLES) -> list[Any]:
         cap.release()
 
 
-def pick_facecam(
+@dataclass(frozen=True)
+class FacecamScore:
+    """Per-candidate detection result (also shown by the panel's calibration editor)."""
+
+    samples: int
+    hits: list[int]
+    misfit: list[float]
+    chosen: int | None
+
+
+def score_candidates(
     source: Path,
     candidates: Sequence[Rect],
     detector: FaceDetector | None = None,
     frames: Sequence[Any] | None = None,
-) -> Rect | None:
-    """Returns the candidate rect that contains the streamer's face, or None."""
-    if not candidates:
-        return None
+) -> FacecamScore:
     frames = list(frames) if frames is not None else sample_frames(source)
-    if not frames:
-        log.warning("facecam: could not read frames from %s", source.name)
-        return None
+    if not candidates or not frames:
+        if not frames:
+            log.warning("facecam: could not read frames from %s", source.name)
+        return FacecamScore(samples=len(frames), hits=[0] * len(candidates), misfit=[math.inf] * len(candidates), chosen=None)
     detect = detector or haar_detector()
     hits: list[int] = []
     misfit: list[float] = []
@@ -143,4 +152,15 @@ def pick_facecam(
         "facecam %s: hits=%s/%d misfit=%s -> %s",
         source.name, hits, len(frames), [round(m, 2) for m in misfit], chosen,
     )  # fmt: skip
-    return candidates[chosen] if chosen is not None else None
+    return FacecamScore(samples=len(frames), hits=hits, misfit=misfit, chosen=chosen)
+
+
+def pick_facecam(
+    source: Path,
+    candidates: Sequence[Rect],
+    detector: FaceDetector | None = None,
+    frames: Sequence[Any] | None = None,
+) -> Rect | None:
+    """Returns the candidate rect that contains the streamer's face, or None."""
+    score = score_candidates(source, candidates, detector, frames)
+    return candidates[score.chosen] if score.chosen is not None else None

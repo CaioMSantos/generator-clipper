@@ -257,6 +257,11 @@ def shift_words(words: list[Word], start: float, end: float) -> list[Word]:
     return out
 
 
+def safe_name(value: str) -> str:
+    """Filesystem-safe fragment used for download/output basenames."""
+    return _safe(value)
+
+
 def _safe(value: str) -> str:
     return "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in value)[:80]
 

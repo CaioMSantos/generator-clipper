@@ -591,6 +591,7 @@ $("#search").addEventListener("input", (e) => {
 
 document.addEventListener("keydown", (e) => {
   const typing = ["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName);
+  if (!$("#calib").classList.contains("hidden")) { calibKey(e); return; }
   if (e.key === "Escape") {
     if (!$("#help").classList.contains("hidden")) { $("#help").classList.add("hidden"); return; }
     if (typing) { document.activeElement.blur(); return; }
@@ -770,7 +771,7 @@ async function streamerCall(method, path, body, okMsg) {
 function renderStreamers() {
   const head = el("div", { class: "st-row head" },
     el("span"), el("span", { text: "nome" }), el("span", { text: "plataforma" }), el("span", { class: "col-login", text: "login" }),
-    el("span", { text: "min views" }), el("span", { class: "col-layout", text: "layout" }), el("span", { text: "ativo" }), el("span"));
+    el("span", { text: "min views" }), el("span", { class: "col-layout", text: "layout" }), el("span", { text: "ativo" }), el("span"), el("span"));
   const rows = state.streamers.map((s) => {
     const base = `/api/streamers/${s.platform}/${encodeURIComponent(s.login)}`;
     const min = el("input", { type: "number", min: "0", placeholder: "global", value: s.min_views ?? "" });
@@ -790,6 +791,8 @@ function renderStreamers() {
       el("span", { class: "layout-tag col-layout" }, el("b", { text: s.layout }),
         s.layout === "stack" ? ` · ${s.facecam_positions} pos` : ""),
       toggle,
+      el("button", { class: "st-cal", title: "Calibrar câmera", type: "button", onclick: () => openCalib(s) },
+        svg('<circle cx="12" cy="12" r="7"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/><circle cx="12" cy="12" r="1.5"/>')),
       el("button", {
         class: "st-del", title: "Remover", type: "button",
         onclick: () => { if (confirm(`Remover ${s.name} (${s.platform}) do monitoramento?`)) streamerCall("DELETE", base, undefined, `${s.name} removido`); },
@@ -815,3 +818,245 @@ $("#add-streamer").addEventListener("submit", async (e) => {
   if (ok) e.target.reset();
 });
 loadConnections();
+
+
+// ---------------------------------------------------------------- calibration editor
+const MIN_SIZE = 0.03;
+const calib = { s: null, layout: null, sel: null, clips: [], previewCam: 0, dirty: false };
+
+const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
+const round4 = (v) => Math.round(v * 10000) / 10000;
+const rectOf = (sel) => (sel === "game" ? calib.layout.gameplay : calib.layout.cams[sel]);
+
+async function openCalib(s) {
+  calib.s = s;
+  calib.sel = null;
+  calib.dirty = false;
+  $("#cb-name").textContent = s.name;
+  $("#cb-sub").textContent = `${s.platform} · ${s.login}`;
+  const av = $("#cb-avatar"); av.className = `avatar ${s.platform}`; av.textContent = initials(s.name);
+  $("#cb-detect-out").classList.add("hidden");
+  $("#calib").classList.remove("hidden");
+  const base = `/api/streamers/${s.platform}/${encodeURIComponent(s.login)}`;
+  try {
+    const [layout, clips] = await Promise.all([api(`${base}/layout`), api(`${base}/clips`)]);
+    calib.layout = {
+      mode: layout.mode,
+      cams: layout.mode === "stack" ? [layout.facecam, ...layout.facecam_alternates] : [],
+      gameplay: layout.mode === "stack" && layout.gameplay && !(layout.gameplay.x === 0 && layout.gameplay.y === 0 && layout.gameplay.w === 1 && layout.gameplay.h === 1) ? layout.gameplay : null,
+      ratio: layout.facecam_ratio ?? 0.3,
+      zoom: layout.zoom ?? 1,
+    };
+    calib.clips = clips;
+  } catch (e) { toast(`calibrar: ${e.message}`, "bad"); closeCalib(true); return; }
+  $("#cb-clip").replaceChildren(...(calib.clips.length
+    ? calib.clips.map((c) => el("option", { value: c.key }, `${c.downloaded ? "●" : "○"} ${c.title.slice(0, 60)} · ${fmtDur(c.duration_s)}`))
+    : [el("option", { value: "" }, "nenhum clip deste streamer ainda — rode o loop primeiro")]));
+  $("#cb-ratio").value = calib.layout.ratio;
+  calib.previewCam = 0;
+  syncMode();
+  loadCalibFrame();
+}
+
+function closeCalib(force = false) {
+  if (!force && calib.dirty && !confirm("Descartar as alterações deste layout?")) return;
+  $("#calib").classList.add("hidden");
+  calib.s = null;
+}
+
+function loadCalibFrame() {
+  const key = $("#cb-clip").value;
+  const img = $("#cb-img");
+  if (!key) { img.removeAttribute("src"); renderRects(); drawPreview(); return; }
+  const clip = calib.clips.find((c) => c.key === key);
+  const at = Math.min(parseFloat($("#cb-at").value), Math.max((clip?.duration_s || 60) - 0.5, 0));
+  $("#cb-at").max = String(Math.max(Math.floor(clip?.duration_s || 60), 1));
+  $("#cb-at-val").textContent = `${at.toFixed(1)}s`;
+  $("#cb-loading").classList.remove("hidden");
+  const base = `/api/streamers/${calib.s.platform}/${encodeURIComponent(calib.s.login)}`;
+  img.onload = () => { $("#cb-loading").classList.add("hidden"); renderRects(); drawPreview(); if (clip) clip.downloaded = true; };
+  img.onerror = async () => {
+    $("#cb-loading").classList.add("hidden");
+    try { await api(`${base}/frame?clip=${encodeURIComponent(key)}&at=${at}`); } catch (e) { toast(`frame: ${e.message}`, "bad"); }
+  };
+  img.src = `${base}/frame?clip=${encodeURIComponent(key)}&at=${at}`;
+}
+
+function syncMode() {
+  const stack = calib.layout.mode === "stack";
+  document.querySelectorAll("#cb-mode button").forEach((b) => b.classList.toggle("on", b.dataset.mode === calib.layout.mode));
+  for (const id of ["#cb-add-cam", "#cb-toggle-game", "#cb-remove", "#cb-detect", "#cb-ratio-row"]) $(id).classList.toggle("hidden", !stack);
+  if (stack && calib.layout.cams.length === 0) calib.layout.cams.push({ x: 0.02, y: 0.02, w: 0.22, h: 0.22 });
+  $("#cb-toggle-game").textContent = calib.layout.gameplay ? "− área de gameplay" : "+ área de gameplay";
+  renderRects();
+  drawPreview();
+}
+
+function renderRects() {
+  const box = $("#cb-rects");
+  if (!calib.layout || calib.layout.mode !== "stack") { box.replaceChildren(); return; }
+  const items = calib.layout.cams.map((r, i) => rectEl(r, i, `CAM ${i + 1}${i === 0 ? " · principal" : ""}`, "cam"));
+  if (calib.layout.gameplay) items.unshift(rectEl(calib.layout.gameplay, "game", "GAMEPLAY", "game"));
+  box.replaceChildren(...items);
+}
+
+function rectEl(r, sel, label, kind) {
+  const node = el("div", {
+    class: `cb-rect ${kind} ${calib.sel === sel ? "sel" : ""}`,
+    style: `left:${r.x * 100}%;top:${r.y * 100}%;width:${r.w * 100}%;height:${r.h * 100}%`,
+  }, el("span", { class: "cb-tag", text: label }),
+     ...["nw", "ne", "sw", "se"].map((h) => el("span", { class: `cb-handle ${h}`, "data-h": h })));
+  node.addEventListener("pointerdown", (e) => startDrag(e, sel));
+  return node;
+}
+
+function startDrag(e, sel) {
+  e.preventDefault();
+  e.stopPropagation();
+  calib.sel = sel;
+  if (sel !== "game") calib.previewCam = sel;
+  const stage = $("#cb-stage").getBoundingClientRect();
+  const r = rectOf(sel);
+  const start = { ...r };
+  const handle = e.target.dataset?.h || null;
+  const x0 = e.clientX, y0 = e.clientY;
+  const move = (ev) => {
+    const dx = (ev.clientX - x0) / stage.width, dy = (ev.clientY - y0) / stage.height;
+    if (!handle) {
+      r.x = clamp(start.x + dx, 0, 1 - start.w);
+      r.y = clamp(start.y + dy, 0, 1 - start.h);
+    } else {
+      let { x, y, w, h } = start;
+      if (handle.includes("w")) { const nx = clamp(x + dx, 0, x + w - MIN_SIZE); w += x - nx; x = nx; }
+      if (handle.includes("e")) { w = clamp(w + dx, MIN_SIZE, 1 - x); }
+      if (handle.includes("n")) { const ny = clamp(y + dy, 0, y + h - MIN_SIZE); h += y - ny; y = ny; }
+      if (handle.includes("s")) { h = clamp(h + dy, MIN_SIZE, 1 - y); }
+      Object.assign(r, { x, y, w, h });
+    }
+    calib.dirty = true;
+    renderRects();
+    drawPreview();
+  };
+  const up = () => {
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", up);
+    for (const k of ["x", "y", "w", "h"]) r[k] = round4(r[k]);
+    renderRects();
+  };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", up);
+  renderRects();
+  drawPreview();
+}
+
+// Same math as ffmpeg `scale=...:force_original_aspect_ratio=increase,crop=W:H` (center crop).
+function drawCover(ctx, img, src, dx, dy, dw, dh) {
+  const iw = img.naturalWidth, ih = img.naturalHeight;
+  let sx = src.x * iw, sy = src.y * ih, sw = src.w * iw, sh = src.h * ih;
+  if (sw / sh > dw / dh) { const cw = sh * dw / dh; sx += (sw - cw) / 2; sw = cw; }
+  else { const ch = sw * dh / dw; sy += (sh - ch) / 2; sh = ch; }
+  ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
+}
+
+function drawPreview() {
+  const canvas = $("#cb-preview"), ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height, img = $("#cb-img");
+  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
+  if (!calib.layout || !img.complete || !img.naturalWidth) return;
+  if (calib.layout.mode === "blur") {
+    ctx.filter = "blur(6px) brightness(0.92)";
+    drawCover(ctx, img, { x: 0, y: 0, w: 1, h: 1 }, 0, 0, W, H);
+    ctx.filter = "none";
+    const fgH = W * calib.layout.zoom * img.naturalHeight / img.naturalWidth;
+    drawCover(ctx, img, { x: 0, y: 0, w: 1, h: 1 }, 0, (H - fgH) / 2, W, fgH);
+    $("#cb-preview-of").textContent = "blur";
+    return;
+  }
+  const cam = calib.layout.cams[Math.min(calib.previewCam, calib.layout.cams.length - 1)];
+  const faceH = Math.round(H * calib.layout.ratio);
+  drawCover(ctx, img, cam, 0, 0, W, faceH);
+  drawCover(ctx, img, calib.layout.gameplay || { x: 0, y: 0, w: 1, h: 1 }, 0, faceH, W, H - faceH);
+  ctx.fillStyle = "rgba(34,211,238,.9)"; ctx.fillRect(0, faceH - 1, W, 2);
+  $("#cb-preview-of").textContent = `CAM ${Math.min(calib.previewCam, calib.layout.cams.length - 1) + 1}`;
+  $("#cb-ratio-val").textContent = `${Math.round(calib.layout.ratio * 100)}%`;
+}
+
+function layoutBody() {
+  const L = calib.layout;
+  if (L.mode === "blur") return { mode: "blur", zoom: L.zoom };
+  return { mode: "stack", facecam: L.cams[0], facecam_alternates: L.cams.slice(1), gameplay: L.gameplay, facecam_ratio: L.ratio };
+}
+
+async function saveCalib() {
+  const base = `/api/streamers/${calib.s.platform}/${encodeURIComponent(calib.s.login)}`;
+  try {
+    await api(`${base}/layout`, { method: "PUT", body: layoutBody() });
+    calib.dirty = false;
+    toast(`${calib.s.name}: layout salvo`, "ok");
+    loadStreamers();
+  } catch (e) { toast(`salvar: ${e.message}`, "bad"); }
+}
+
+async function detectCalib() {
+  const key = $("#cb-clip").value;
+  if (!key) return;
+  const out = $("#cb-detect-out");
+  out.className = "conn-result"; out.textContent = "rodando detecção de rosto…"; out.classList.remove("hidden");
+  const base = `/api/streamers/${calib.s.platform}/${encodeURIComponent(calib.s.login)}`;
+  try {
+    const r = await api(`${base}/detect`, { method: "POST", body: { clip: key, layout: layoutBody() } });
+    out.className = `conn-result ${r.chosen === null ? "err" : "ok"}`;
+    out.textContent = `${r.message} · hits=[${r.hits.join(", ")}]/${r.samples}`;
+    if (r.chosen !== null) {
+      calib.previewCam = r.chosen; calib.sel = r.chosen; renderRects(); drawPreview();
+      document.querySelectorAll(".cb-rect.cam")[r.chosen]?.classList.add("win");
+    }
+  } catch (e) { out.className = "conn-result err"; out.textContent = e.message; }
+}
+
+function removeSelected() {
+  if (calib.sel === null) { toast("selecione uma área primeiro"); return; }
+  if (calib.sel === "game") calib.layout.gameplay = null;
+  else if (calib.layout.cams.length > 1) calib.layout.cams.splice(calib.sel, 1);
+  else { toast("o modo stack precisa de pelo menos uma câmera", "bad"); return; }
+  calib.sel = null; calib.previewCam = 0; calib.dirty = true;
+  syncMode();
+}
+
+function calibKey(e) {
+  const typing = ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName);
+  if (e.key === "Escape") { closeCalib(); return; }
+  if (typing) return;
+  if ((e.key === "Delete" || e.key === "Backspace") && calib.sel !== null) { e.preventDefault(); removeSelected(); }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); saveCalib(); }
+}
+
+$("#cb-close").addEventListener("click", () => closeCalib());
+$("#cb-clip").addEventListener("change", loadCalibFrame);
+let calibAtTimer = null;
+$("#cb-at").addEventListener("input", () => {
+  $("#cb-at-val").textContent = `${parseFloat($("#cb-at").value).toFixed(1)}s`;
+  clearTimeout(calibAtTimer); calibAtTimer = setTimeout(loadCalibFrame, 250);
+});
+$("#cb-ratio").addEventListener("input", () => { calib.layout.ratio = parseFloat($("#cb-ratio").value); calib.dirty = true; drawPreview(); });
+document.querySelectorAll("#cb-mode button").forEach((b) => b.addEventListener("click", () => {
+  if (calib.layout.mode === b.dataset.mode) return;
+  calib.layout.mode = b.dataset.mode; calib.dirty = true; calib.sel = null; syncMode();
+}));
+$("#cb-add-cam").addEventListener("click", () => {
+  const n = calib.layout.cams.length;
+  const last = calib.layout.cams[n - 1] || { x: 0.02, y: 0.02, w: 0.22, h: 0.22 };
+  calib.layout.cams.push({ x: round4(clamp(1 - last.x - last.w, 0, 1 - last.w)), y: last.y, w: last.w, h: last.h });
+  calib.sel = n; calib.previewCam = n; calib.dirty = true;
+  renderRects(); drawPreview();
+});
+$("#cb-toggle-game").addEventListener("click", () => {
+  calib.layout.gameplay = calib.layout.gameplay ? null : { x: 0.25, y: 0, w: 0.5, h: 1 };
+  calib.sel = calib.layout.gameplay ? "game" : null; calib.dirty = true;
+  syncMode();
+});
+$("#cb-remove").addEventListener("click", removeSelected);
+$("#cb-detect").addEventListener("click", detectCalib);
+$("#cb-save").addEventListener("click", saveCalib);
+$("#cb-stage").addEventListener("pointerdown", (e) => { if (e.target.id === "cb-img" || e.target.id === "cb-stage") { calib.sel = null; renderRects(); } });
+window.addEventListener("resize", () => { if (calib.s) renderRects(); });

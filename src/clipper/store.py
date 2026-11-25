@@ -212,6 +212,14 @@ class Store:
         params.append(limit)
         return [self._row(r) for r in self._conn.execute(sql, params).fetchall()]
 
+    def recent_for_streamer(self, platform: Platform, login: str, limit: int = 20) -> list[ClipRow]:
+        """Newest clips of one streamer in any status (calibration needs any recent footage)."""
+        rows = self._conn.execute(
+            "SELECT * FROM clips WHERE platform = ? AND broadcaster = ? ORDER BY created_at DESC LIMIT ?",
+            (platform.value, login.lower(), limit),
+        ).fetchall()
+        return [self._row(r) for r in rows]
+
     def count_by_status(self) -> dict[ClipStatus, int]:
         rows = self._conn.execute("SELECT status, COUNT(*) AS n FROM clips GROUP BY status").fetchall()
         return {ClipStatus(r["status"]): int(r["n"]) for r in rows}

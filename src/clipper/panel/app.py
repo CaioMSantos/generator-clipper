@@ -19,14 +19,20 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 
-from clipper.config import ConfigError, Platform, Settings, StackLayout, StreamerCatalog, load_catalog
+from clipper.config import (
+    BlurLayout, ConfigError, Layout, Platform, Rect, Settings, StackLayout, StreamerCatalog, load_catalog,
+)
+from clipper.media import MediaError
+from clipper.media.download import download_clip
+from clipper.media.facecam import score_candidates
+from clipper.media.render import extract_frame
 from clipper.models import ClipStatus
 from clipper.panel.connections import (
     CONNECTIONS, SPECS, CatalogEditor, ConnectionId, ConnectionTester, EnvStore, mask,
 )
 from clipper.panel.jobs import Job, RerenderQueue, RerenderRequest
 from clipper.sources import SourceError
-from clipper.pipeline import Pipeline
+from clipper.pipeline import Pipeline, safe_name
 from clipper.store import ClipRow, Store
 
 log = logging.getLogger(__name__)
@@ -163,6 +169,54 @@ class StreamerPatch(BaseModel):
     name: str | None = Field(default=None, max_length=60)
     min_views: int | None = Field(default=None, ge=0)
     clear_min_views: bool = False
+
+
+class LayoutBody(BaseModel):
+    mode: Literal["stack", "blur"]
+    facecam: Rect | None = None
+    facecam_alternates: list[Rect] = Field(default_factory=list, max_length=8)
+    gameplay: Rect | None = None
+    facecam_ratio: float = Field(default=0.30, ge=0.15, le=0.5)
+    zoom: float = Field(default=1.0, ge=1.0, le=2.0)
+
+    def to_layout(self) -> Layout:
+        if self.mode == "blur":
+            return BlurLayout(zoom=self.zoom)
+        if self.facecam is None:
+            raise ValueError("o modo stack precisa de pelo menos uma posição de câmera")
+        return StackLayout(
+            mode="stack", facecam=self.facecam, facecam_alternates=self.facecam_alternates,
+            gameplay=self.gameplay or Rect(x=0.0, y=0.0, w=1.0, h=1.0), facecam_ratio=self.facecam_ratio,
+        )  # fmt: skip
+
+    @classmethod
+    def from_layout(cls, layout: Layout) -> LayoutBody:
+        if isinstance(layout, StackLayout):
+            return cls(
+                mode="stack", facecam=layout.facecam, facecam_alternates=layout.facecam_alternates,
+                gameplay=layout.gameplay, facecam_ratio=layout.facecam_ratio,
+            )  # fmt: skip
+        return cls(mode="blur", zoom=layout.zoom)
+
+
+class CalibClip(BaseModel):
+    key: str
+    title: str
+    created_at: datetime
+    duration_s: float
+    downloaded: bool
+
+
+class DetectBody(BaseModel):
+    clip: str
+    layout: LayoutBody
+
+
+class DetectView(BaseModel):
+    samples: int
+    hits: list[int]
+    chosen: int | None
+    message: str
 
 
 # ---- helpers ----------------------------------------------------------------
@@ -443,6 +497,93 @@ def create_app(
             raise HTTPException(422, str(exc)) from exc
         log.info("streamer removed: %s:%s", platform.value, login)
         return streamer_views()
+
+    # ---- calibration editor ----------------------------------------------
+
+    def find_streamer(platform: Platform, login: str) -> Any:
+        s = current_catalog().find(platform, login)
+        if s is None:
+            raise HTTPException(404, f"{platform.value}:{login} não está no catálogo")
+        return s
+
+    def downloaded_path(platform: Platform, clip_id: str) -> Path | None:
+        base = f"{platform.value}_{safe_name(clip_id)}"
+        hits = [p for p in settings.downloads_dir.glob(f"{base}.*") if p.suffix not in {".part", ".ytdl"}]
+        return hits[0] if hits else None
+
+    def source_for(store: Store, key: str, platform: Platform, login: str) -> Path:
+        row = store.get(key)
+        if row is None or row.clip.platform != platform or row.clip.broadcaster_login != login.lower():
+            raise HTTPException(404, "clip não encontrado para este streamer")
+        path = downloaded_path(platform, row.clip.id)
+        if path is not None:
+            return path
+        try:  # not downloaded yet (e.g. skipped duplicate): fetch it now, ~5s
+            return download_clip(row.clip.url, settings.downloads_dir, f"{platform.value}_{safe_name(row.clip.id)}")
+        except MediaError as exc:
+            raise HTTPException(502, f"não deu para baixar o clip: {exc}") from exc
+
+    @app.get("/api/streamers/{platform}/{login}/clips", response_model=list[CalibClip])
+    def calib_clips(platform: Platform, login: str, store: Store = Depends(get_store)) -> list[CalibClip]:
+        find_streamer(platform, login)
+        rows = store.recent_for_streamer(platform, login, limit=40)
+        views = [
+            CalibClip(
+                key=r.key, title=r.clip.title or r.clip.id, created_at=r.clip.created_at,
+                duration_s=r.clip.duration_s, downloaded=downloaded_path(platform, r.clip.id) is not None,
+            )
+            for r in rows
+        ]  # fmt: skip
+        views.sort(key=lambda v: (not v.downloaded, -v.created_at.timestamp()))  # instant ones first
+        return views[:20]
+
+    @app.get("/api/streamers/{platform}/{login}/frame")
+    def calib_frame(
+        platform: Platform, login: str, clip: str, at: float = Query(default=4.0, ge=0, le=600),
+        store: Store = Depends(get_store),
+    ) -> FileResponse:  # fmt: skip
+        find_streamer(platform, login)
+        source = source_for(store, clip, platform, login)
+        out = settings.data_dir / "frames" / f"calib_{safe_name(clip)}_{at:.1f}.png"
+        if not out.is_file():
+            try:
+                extract_frame(source, out, at)
+            except MediaError as exc:
+                raise HTTPException(422, f"não deu para extrair o frame em {at:.1f}s: {exc}") from exc
+            if not out.is_file():  # ffmpeg writes nothing when `at` is past the end
+                raise HTTPException(422, f"o clip é mais curto que {at:.1f}s")
+        return FileResponse(out, media_type="image/png", headers={"Cache-Control": "max-age=3600"})
+
+    @app.get("/api/streamers/{platform}/{login}/layout", response_model=LayoutBody)
+    def get_layout(platform: Platform, login: str) -> LayoutBody:
+        return LayoutBody.from_layout(find_streamer(platform, login).layout)
+
+    @app.put("/api/streamers/{platform}/{login}/layout", response_model=LayoutBody)
+    def put_layout(platform: Platform, login: str, body: LayoutBody) -> LayoutBody:
+        find_streamer(platform, login)
+        try:
+            layout = body.to_layout()
+            editor.set_layout(platform, login, layout)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        log.info("layout saved for %s:%s (%s)", platform.value, login, layout.mode)
+        return LayoutBody.from_layout(find_streamer(platform, login).layout)
+
+    @app.post("/api/streamers/{platform}/{login}/detect", response_model=DetectView)
+    def detect(platform: Platform, login: str, body: DetectBody, store: Store = Depends(get_store)) -> DetectView:
+        find_streamer(platform, login)
+        if body.layout.mode != "stack" or body.layout.facecam is None:
+            raise HTTPException(422, "a detecção só se aplica ao modo stack")
+        candidates = [body.layout.facecam, *body.layout.facecam_alternates]
+        source = source_for(store, body.clip, platform, login)
+        score = score_candidates(source, candidates)
+        if score.chosen is None:
+            msg = "nenhuma posição com rosto — este clip sairia em blur"
+        else:
+            msg = f"CAM {score.chosen + 1} venceu ({score.hits[score.chosen]}/{score.samples} frames com rosto)"
+        return DetectView(samples=score.samples, hits=score.hits, chosen=score.chosen, message=msg)
 
     @app.get("/media/{key}")
     def media(key: str, download: bool = False, store: Store = Depends(get_store)) -> FileResponse:

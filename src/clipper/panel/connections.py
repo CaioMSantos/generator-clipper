@@ -21,7 +21,7 @@ import anthropic
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 
-from clipper.config import ConfigError, Platform, StreamerCatalog, load_catalog
+from clipper.config import BlurLayout, ConfigError, Layout, Platform, Rect, StackLayout, StreamerCatalog, load_catalog
 from clipper.sources import SourceError
 from clipper.sources.kick import KickSource
 from clipper.sources.twitch import TwitchSource
@@ -298,6 +298,51 @@ class CatalogEditor:
                 item["min_views"] = min_views
         if name is not None and name.strip():
             item["name"] = name.strip()
+        self._save(doc)
+
+    @staticmethod
+    def _rect_map(r: Rect) -> CommentedMap:
+        m = CommentedMap()
+        for k in ("x", "y", "w", "h"):
+            m[k] = round(float(getattr(r, k)), 4)
+        m.fa.set_flow_style()  # keep `{x: .., y: .., w: .., h: ..}` on one line
+        return m
+
+    def set_layout(self, platform: Platform, login: str, layout: Layout) -> None:
+        """Replaces the streamer's layout, editing the existing node so comments around it stay."""
+        doc = self._doc()
+        idx = self._find(doc, platform, login)
+        if idx is None:
+            raise KeyError(f"{platform.value}:{login} não encontrado")
+        item = doc["streamers"][idx]
+        node = item.get("layout")
+        if not isinstance(node, CommentedMap):
+            node = CommentedMap()
+            item["layout"] = node
+        node["mode"] = layout.mode
+        if isinstance(layout, StackLayout):
+            node["facecam"] = self._rect_map(layout.facecam)
+            if layout.facecam_alternates:
+                from ruamel.yaml.comments import CommentedSeq
+
+                seq = CommentedSeq([self._rect_map(r) for r in layout.facecam_alternates])
+                node["facecam_alternates"] = seq
+            else:
+                node.pop("facecam_alternates", None)
+            full = Rect(x=0.0, y=0.0, w=1.0, h=1.0)
+            if layout.gameplay != full:
+                node["gameplay"] = self._rect_map(layout.gameplay)
+            else:
+                node.pop("gameplay", None)
+            node["facecam_ratio"] = round(layout.facecam_ratio, 3)
+            node.pop("zoom", None)
+        elif isinstance(layout, BlurLayout):
+            for key in ("facecam", "facecam_alternates", "gameplay", "facecam_ratio"):
+                node.pop(key, None)
+            if layout.zoom != 1.0:
+                node["zoom"] = layout.zoom
+            else:
+                node.pop("zoom", None)
         self._save(doc)
 
     def remove(self, platform: Platform, login: str) -> None:

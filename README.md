@@ -101,6 +101,7 @@ O modelo do Whisper é baixado na build, então o primeiro clip não espera down
 - **Menu lateral recolhível** (trilho de ícones ↔ expandido), com bolinhas de pendência por status e por streamer; vira menu deslizante no celular
 - **Gaveta de detalhes**: player grande, legenda sugerida pronta pra copiar, transcrição, download do MP4 e link do clip original
 - **Re-render em background** com gancho novo (texto / IA / sem gancho) e **corte de início e fim** marcado no próprio player
+- **Calibração visual** da facecam: frame real do streamer, retângulos arrastáveis, prévia 9:16 ao vivo e teste da detecção de rosto
 - **Conexões** (`~/config/`): credenciais da Twitch e do Claude com **teste de conexão ao vivo**, status da Kick e gestão dos streamers monitorados (adicionar com verificação do canal, pausar, mínimo de views, remover) — sem editar arquivo nem reiniciar o loop
 
 | Atalho | Ação | | Atalho | Ação |
@@ -136,9 +137,14 @@ streamers:
       facecam_ratio: 0.30     # fração da altura 9:16 ocupada pela facecam
 ```
 
-Dá pra adicionar, pausar e remover streamers pela tela **Conexões** do painel; a calibração da facecam continua no YAML.
+Dá pra adicionar, pausar e remover streamers pela tela **Conexões** do painel.
 
-**Como calibrar:** `clipper frame <url-de-um-clip>` salva um PNG; meça a câmera em frações da tela e confira com
+**Calibração visual (recomendado):** na tela **Conexões**, clique no alvo ◎ do streamer. O editor abre um frame real de um clip
+dele: arraste e redimensione as posições da câmera (CAM 1, CAM 2…) e, se quiser, a área de gameplay; a prévia 9:16 atualiza
+em tempo real. **Testar detecção** roda a detecção de rosto de verdade no clip e mostra qual posição venceria. **Salvar**
+grava no YAML (preservando os comentários) e o loop aplica no próximo ciclo.
+
+**Calibração manual:** `clipper frame <url-de-um-clip>` salva um PNG; meça a câmera em frações da tela e confira com
 `clipper render <url> --streamer <login>`. Se o streamer troca a câmera de canto, liste as posições em
 `facecam_alternates` — a cada clip vence a que tem um rosto bem enquadrado; sem rosto, o corte sai em `blur`.
 
