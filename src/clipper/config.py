@@ -113,6 +113,13 @@ class Settings(BaseSettings):
     # Find the facecam per clip (face detection over the candidate rects); no face -> blur layout.
     facecam_detect: bool = Field(default=True, alias="CLIPPER_FACECAM_DETECT")
 
+    # Extra Host headers the panel accepts besides localhost (e.g. a LAN IP). Comma-separated.
+    panel_allowed_hosts: str = Field(default="", alias="CLIPPER_PANEL_ALLOWED_HOSTS")
+
+    @property
+    def panel_allowed_host_set(self) -> set[str]:
+        return {h.strip().lower() for h in self.panel_allowed_hosts.split(",") if h.strip()}
+
     @property
     def game_name_list(self) -> list[str]:
         return [g.strip() for g in self.game_names.split(",") if g.strip()]

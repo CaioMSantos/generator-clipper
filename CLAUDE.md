@@ -45,7 +45,8 @@ Escolha da linguagem: Python de ponta a ponta porque o ecossistema necessário (
 | `media/facecam.py` | Acha a facecam por clip: amostra 6 frames (OpenCV), roda o detector Haar em cada posição candidata (`facecam` + `facecam_alternates`) e escolhe a que tem rosto em ≥2/6. Sem rosto, o clip sai em `blur`. OpenCV fixado em 4.x (o 5.x tirou os Haar embutidos) |
 | `media/audio.py` | Decodifica o áudio com ffmpeg (16 kHz mono) para o Whisper, sem PyAV |
 | `panel/` | Painel de revisão: FastAPI (`app.py`) + SPA estática sem build (`static/`). Lista/filtra clips, player 9:16, aprovar/rejeitar/postado (atalhos A/X/P/U), copiar legenda, re-render em background (`jobs.py`, 1 por vez) com gancho novo e corte início/fim. Cada request abre o próprio `Store` |
-| `cli.py` | `run [--once]`, `panel [--host --port]`, `render <url> [--streamer] [--hook]`, `frame <url>`, `list [--status]`, `set-status <key> <status>`. Tem shutdown gracioso com SIGINT/SIGTERM |
+| `panel/connections.py` | Tela Conexões: `EnvStore` (edita o `.env` preservando comentários, escrita atômica), `ConnectionTester` (Twitch token, Kick canal, Anthropic `models.list`), `CatalogEditor` (ruamel round-trip no `streamers.yaml`, valida pelo schema antes de gravar). Segredos nunca voltam ao navegador (só `••••1234`). O app tem middleware: `Host` local + escrita só com `X-Clipper-Panel: 1` e mesma origem |
+| `cli.py` | `run [--once]`, `panel [--host --port]`, `render <url> [--streamer] [--hook]`, `frame <url>`, `list [--status]`, `set-status <key> <status>`. Tem shutdown gracioso com SIGINT/SIGTERM. O `run` recarrega `.env`/`streamers.yaml` quando o mtime muda (editados pelo painel) |
 
 ### Config
 

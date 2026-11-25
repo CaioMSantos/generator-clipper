@@ -14,14 +14,18 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import Depends, FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 
-from clipper.config import Settings, StreamerCatalog
+from clipper.config import ConfigError, Platform, Settings, StackLayout, StreamerCatalog, load_catalog
 from clipper.models import ClipStatus
+from clipper.panel.connections import (
+    CONNECTIONS, SPECS, CatalogEditor, ConnectionId, ConnectionTester, EnvStore, mask,
+)
 from clipper.panel.jobs import Job, RerenderQueue, RerenderRequest
+from clipper.sources import SourceError
 from clipper.pipeline import Pipeline
 from clipper.store import ClipRow, Store
 
@@ -105,6 +109,62 @@ class JobView(BaseModel):
     finished_at: datetime | None
 
 
+class FieldView(BaseModel):
+    key: str
+    label: str
+    secret: bool
+    is_set: bool
+    preview: str | None  # masked for secrets, full value otherwise
+
+
+class TestView(BaseModel):
+    ok: bool
+    message: str
+    latency_ms: int
+    at: float
+
+
+class ConnectionView(BaseModel):
+    id: str
+    name: str
+    description: str
+    docs_url: str
+    required: bool
+    configured: bool
+    fields: list[FieldView]
+    last_test: TestView | None
+
+
+class ConnectionUpdate(BaseModel):
+    # value: string sets it, null clears it, missing keys are untouched
+    values: dict[str, str | None]
+
+
+class StreamerView(BaseModel):
+    name: str
+    platform: str
+    login: str
+    enabled: bool
+    min_views: int | None
+    layout: str
+    facecam_positions: int
+
+
+class StreamerCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+    platform: Platform
+    login: str = Field(min_length=2, max_length=40)
+    min_views: int | None = Field(default=None, ge=0)
+    verify: bool = True
+
+
+class StreamerPatch(BaseModel):
+    enabled: bool | None = None
+    name: str | None = Field(default=None, max_length=60)
+    min_views: int | None = Field(default=None, ge=0)
+    clear_min_views: bool = False
+
+
 # ---- helpers ----------------------------------------------------------------
 
 
@@ -154,12 +214,25 @@ def _job_view(job: Job) -> JobView:
 # ---- app --------------------------------------------------------------------
 
 
+LOCAL_HOSTS = {"127.0.0.1", "localhost", "[::1]", "::1", "testserver"}
+SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+PANEL_HEADER = "x-clipper-panel"
+
+
 def create_app(
     settings: Settings,
     catalog: StreamerCatalog,
     pipeline_factory: Callable[[], Pipeline],
+    *,
+    env_path: Path = Path(".env"),
+    tester: ConnectionTester | None = None,
+    allowed_hosts: set[str] | None = None,
 ) -> FastAPI:
     queue = RerenderQueue(pipeline_factory)
+    env = EnvStore(env_path)
+    editor = CatalogEditor(settings.streamers_file)
+    tests = tester or ConnectionTester()
+    hosts = LOCAL_HOSTS | {h.lower() for h in (allowed_hosts or set())}
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> Any:
@@ -167,6 +240,29 @@ def create_app(
         queue.shutdown()
 
     app = FastAPI(title="gta6-clipper panel", lifespan=lifespan)
+
+    @app.middleware("http")
+    async def guard(request: Request, call_next: Callable[[Request], Any]) -> Response:
+        """No login on the panel, so: only local Host headers (blocks DNS rebinding) and,
+        for writes, same-origin plus a custom header (a cross-site page can't send it)."""
+        host = (request.headers.get("host") or "").rsplit(":", 1)[0].lower()
+        if host not in hosts:
+            return JSONResponse({"detail": f"host '{host}' not allowed"}, status_code=403)
+        if request.method not in SAFE_METHODS and request.url.path.startswith("/api/"):
+            origin = request.headers.get("origin")
+            if origin and origin.split("://", 1)[-1].rsplit(":", 1)[0].lower() not in hosts:
+                return JSONResponse({"detail": "cross-origin write blocked"}, status_code=403)
+            if request.headers.get(PANEL_HEADER) != "1":
+                return JSONResponse({"detail": f"missing {PANEL_HEADER} header"}, status_code=403)
+        response: Response = await call_next(request)
+        return response
+
+    def current_catalog() -> StreamerCatalog:
+        try:
+            return load_catalog(settings.streamers_file)
+        except ConfigError as exc:
+            log.warning("catalog reload failed, using the startup copy: %s", exc)
+            return catalog
 
     def get_store() -> Iterator[Store]:
         store = Store(settings.db_path)
@@ -201,7 +297,7 @@ def create_app(
                 platform=s.platform.value, login=s.login.lower(), name=s.name,
                 to_review=to_review.get((s.platform.value, s.login.lower()), 0),
             )
-            for s in catalog.enabled()
+            for s in current_catalog().enabled()
         ]  # fmt: skip
         return Stats(
             by_status={k.value: v for k, v in store.count_by_status().items()},
@@ -238,6 +334,115 @@ def create_app(
     @app.get("/api/jobs", response_model=list[JobView])
     def jobs() -> list[JobView]:
         return [_job_view(j) for j in queue.jobs()]
+
+    # ---- connections ------------------------------------------------------
+
+    def connection_view(conn_id: str, values: dict[str, str]) -> ConnectionView:
+        spec = SPECS[conn_id]
+        fields = [
+            FieldView(
+                key=f.key, label=f.label, secret=f.secret, is_set=bool(values.get(f.key)),
+                preview=(mask(values.get(f.key, "")) if f.secret else values.get(f.key) or None),
+            )
+            for f in spec.fields
+        ]  # fmt: skip
+        last = tests.last.get(conn_id)
+        return ConnectionView(
+            id=spec.id, name=spec.name, description=spec.description, docs_url=spec.docs_url,
+            required=spec.required, configured=all(f.is_set for f in fields), fields=fields,
+            last_test=TestView(ok=last.ok, message=last.message, latency_ms=last.latency_ms, at=last.at) if last else None,
+        )  # fmt: skip
+
+    @app.get("/api/connections", response_model=list[ConnectionView])
+    def list_connections() -> list[ConnectionView]:
+        values = env.read()
+        return [connection_view(c.id, values) for c in CONNECTIONS]
+
+    @app.put("/api/connections/{conn_id}", response_model=ConnectionView)
+    def update_connection(conn_id: ConnectionId, body: ConnectionUpdate) -> ConnectionView:
+        allowed = {f.key for f in SPECS[conn_id].fields}
+        unknown = set(body.values) - allowed
+        if unknown:
+            raise HTTPException(422, f"campos desconhecidos para {conn_id}: {sorted(unknown)}")
+        changes = {k: (v or "").strip() for k, v in body.values.items()}
+        try:
+            env.update(changes)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        tests.last.pop(conn_id, None)  # stale after a credential change
+        log.info("connection %s updated: %s", conn_id, sorted(changes))
+        return connection_view(conn_id, env.read())
+
+    @app.post("/api/connections/{conn_id}/test", response_model=TestView)
+    def test_connection(conn_id: ConnectionId) -> TestView:
+        kick_logins = [s.login for s in current_catalog().streamers if s.platform == Platform.KICK]
+        r = tests.run(conn_id, env.read(), kick_probe=kick_logins[0] if kick_logins else "kick")
+        return TestView(ok=r.ok, message=r.message, latency_ms=r.latency_ms, at=r.at)
+
+    # ---- streamers ---------------------------------------------------------
+
+    def streamer_views() -> list[StreamerView]:
+        return [
+            StreamerView(
+                name=s.name, platform=s.platform.value, login=s.login.lower(), enabled=s.enabled,
+                min_views=s.min_views, layout=s.layout.mode,
+                facecam_positions=(1 + len(s.layout.facecam_alternates)) if isinstance(s.layout, StackLayout) else 0,
+            )
+            for s in current_catalog().streamers
+        ]  # fmt: skip
+
+    @app.get("/api/streamers", response_model=list[StreamerView])
+    def list_streamers() -> list[StreamerView]:
+        return streamer_views()
+
+    @app.post("/api/streamers", response_model=list[StreamerView], status_code=201)
+    def add_streamer(body: StreamerCreate) -> list[StreamerView]:
+        login = body.login.strip().lower()
+        if body.verify:
+            values = env.read()
+            try:
+                if body.platform == Platform.TWITCH:
+                    exists = tests.twitch_factory(
+                        values.get("TWITCH_CLIENT_ID", ""), values.get("TWITCH_CLIENT_SECRET", "")
+                    ).channel_exists(login)
+                else:
+                    exists = tests.kick_factory().channel_exists(login)
+            except SourceError as exc:
+                raise HTTPException(424, f"não deu para verificar o canal: {exc}") from exc
+            if not exists:
+                raise HTTPException(404, f"canal '{login}' não encontrado na {body.platform.value}")
+        try:
+            editor.add(body.name, body.platform, login, body.min_views)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        log.info("streamer added: %s:%s", body.platform.value, login)
+        return streamer_views()
+
+    @app.patch("/api/streamers/{platform}/{login}", response_model=list[StreamerView])
+    def patch_streamer(platform: Platform, login: str, body: StreamerPatch) -> list[StreamerView]:
+        min_views: int | None | Literal["unset"] = "unset"
+        if body.clear_min_views:
+            min_views = None
+        elif body.min_views is not None:
+            min_views = body.min_views
+        try:
+            editor.update(platform, login, enabled=body.enabled, min_views=min_views, name=body.name)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return streamer_views()
+
+    @app.delete("/api/streamers/{platform}/{login}", response_model=list[StreamerView])
+    def delete_streamer(platform: Platform, login: str) -> list[StreamerView]:
+        try:
+            editor.remove(platform, login)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        log.info("streamer removed: %s:%s", platform.value, login)
+        return streamer_views()
 
     @app.get("/media/{key}")
     def media(key: str, download: bool = False, store: Store = Depends(get_store)) -> FileResponse:

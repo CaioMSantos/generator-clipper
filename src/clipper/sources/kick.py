@@ -26,10 +26,12 @@ import httpx
 
 from clipper.config import Platform, Streamer
 from clipper.models import Clip
+from clipper.sources import SourceError
 
 log = logging.getLogger(__name__)
 
 CLIPS_URL = "https://kick.com/api/v2/channels/{slug}/clips"
+CHANNEL_URL = "https://kick.com/api/v2/channels/{slug}"
 CLIP_PAGE_URL = "https://kick.com/{slug}/clips/{clip_id}"  # what yt-dlp's Kick extractor expects
 HEADERS = {
     "Accept": "application/json",
@@ -67,6 +69,20 @@ class KickSource:
                 # One broken channel must not kill the whole cycle.
                 log.error("kick %s: failed to fetch clips: %s", s.login, exc)
         return out
+
+    def channel_exists(self, slug: str) -> bool:
+        """True/False for 200/404; raises SourceError when Kick can't be reached (403, 5xx...)."""
+        try:
+            resp = self._http.get(CHANNEL_URL.format(slug=slug.lower()))
+        except httpx.HTTPError as exc:
+            raise SourceError(f"kick unreachable: {exc}") from exc
+        if resp.status_code == 200:
+            return True
+        if resp.status_code == 404:
+            return False
+        if resp.status_code == 403:
+            raise SourceError("kick returned 403 (Cloudflare): run from a residential IP or use a proxy")
+        raise SourceError(f"kick returned HTTP {resp.status_code}")
 
     def _get(self, slug: str, params: dict[str, str]) -> dict[str, Any] | None:
         for attempt in range(MAX_RETRIES):

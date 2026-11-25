@@ -8,6 +8,7 @@ import signal
 import sys
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from types import FrameType
 
 from clipper.config import ConfigError, Platform, Settings, load_catalog
@@ -69,8 +70,24 @@ def _platform_from_url(url: str) -> Platform:
     return Platform.KICK if "kick.com" in url else Platform.TWITCH
 
 
+ENV_FILE = Path(".env")
+
+
+def config_fingerprint(settings: Settings) -> tuple[float, float]:
+    """mtimes of .env and the streamer catalog; a change means the panel (or a human) edited them."""
+
+    def mtime(p: Path) -> float:
+        try:
+            return p.stat().st_mtime
+        except OSError:
+            return 0.0
+
+    return mtime(ENV_FILE), mtime(settings.streamers_file)
+
+
 def cmd_run(settings: Settings, once: bool) -> int:
     pipe = _build(settings)
+    fingerprint = config_fingerprint(settings)
     recovered = pipe.store.recover_stuck()
     if recovered:
         log.info("recovered %d clips stuck in 'rendering'", recovered)
@@ -78,6 +95,15 @@ def cmd_run(settings: Settings, once: bool) -> int:
     signal.signal(signal.SIGTERM, _handle_stop)
     while not _stop:
         started = time.monotonic()
+        if config_fingerprint(settings) != fingerprint:
+            try:
+                fresh = Settings()
+                pipe = _build(fresh)
+                settings, fingerprint = fresh, config_fingerprint(fresh)
+                log.info("config changed (.env / streamers.yaml): reloaded")
+            except (ConfigError, SourceError, ValueError) as exc:
+                fingerprint = config_fingerprint(settings)  # don't retry every cycle
+                log.error("config changed but is invalid, keeping the previous one: %s", exc)
         try:
             d, r = pipe.run_cycle()
             log.info("cycle: fetched=%d moments=%d queued=%d rendered=%d", d.fetched, d.moments, d.queued, r)
@@ -162,7 +188,10 @@ def cmd_panel(settings: Settings, host: str, port: int) -> int:
     from clipper.panel.app import create_app
 
     catalog = load_catalog(settings.streamers_file)
-    app = create_app(settings, catalog, lambda: _build(settings, need_sources=False))
+    app = create_app(
+        settings, catalog, lambda: _build(Settings(), need_sources=False),
+        env_path=ENV_FILE, allowed_hosts=settings.panel_allowed_host_set,
+    )  # fmt: skip
     log.info("panel: http://%s:%d", host, port)
     uvicorn.run(app, host=host, port=port, log_level="warning")
     return 0

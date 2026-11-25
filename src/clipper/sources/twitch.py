@@ -97,6 +97,16 @@ class TwitchSource:
 
     # ---- lookups ----------------------------------------------------------
 
+    # ---- checks (used by the panel's connections page) --------------------
+
+    def check_credentials(self) -> None:
+        """Raises SourceError if the client id/secret can't get an app token."""
+        self._token = None
+        self._ensure_token()
+
+    def channel_exists(self, login: str) -> bool:
+        return login.lower() in self._resolve_user_ids([login.lower()])
+
     def _resolve_user_ids(self, logins: list[str]) -> dict[str, str]:
         missing = [lg for lg in logins if lg not in self._user_ids]
         for i in range(0, len(missing), 100):

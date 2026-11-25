@@ -17,6 +17,16 @@ from clipper.store import Store
 from tests.conftest import make_clip
 
 
+STREAMERS_YAML = """streamers:
+  # calibration note that must survive panel edits
+  - name: Alanzoka
+    platform: twitch
+    login: alanzoka
+    layout:
+      mode: blur
+"""
+
+
 class FakePipeline:
     """Stands in for Pipeline in the re-render worker: records the call, writes a fake mp4."""
 
@@ -36,7 +46,11 @@ class FakePipeline:
 
 @pytest.fixture
 def env(tmp_path: Path) -> tuple[TestClient, Store, FakePipeline, Path]:
-    settings = Settings(CLIPPER_DATA_DIR=tmp_path, CLIPPER_OUTPUT_DIR=tmp_path / "out")
+    streamers_file = tmp_path / "streamers.yaml"
+    streamers_file.write_text(STREAMERS_YAML, encoding="utf-8")
+    settings = Settings(
+        CLIPPER_DATA_DIR=tmp_path, CLIPPER_OUTPUT_DIR=tmp_path / "out", CLIPPER_STREAMERS_FILE=streamers_file
+    )
     out = tmp_path / "out"
     out.mkdir()
     store = Store(settings.db_path)
@@ -51,8 +65,10 @@ def env(tmp_path: Path) -> tuple[TestClient, Store, FakePipeline, Path]:
     store.set_status(clip.key, ClipStatus.READY, output_path=str(video))
     catalog = StreamerCatalog(streamers=[Streamer(name="Alanzoka", platform=Platform.TWITCH, login="alanzoka")])
     fake = FakePipeline(Store(settings.db_path), out)
-    app = create_app(settings, catalog, lambda: fake)  # type: ignore[arg-type, return-value]
-    return TestClient(app), store, fake, video
+    app = create_app(
+        settings, catalog, lambda: fake, env_path=tmp_path / ".env"  # type: ignore[arg-type, return-value]
+    )
+    return TestClient(app, headers={"X-Clipper-Panel": "1"}), store, fake, video
 
 
 def test_lists_ready_clip_with_metadata(env: tuple[TestClient, Store, FakePipeline, Path]) -> None:

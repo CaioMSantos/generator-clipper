@@ -28,6 +28,9 @@ const JOBS_MS = 2500;
 
 // ---------------------------------------------------------------- state
 const state = {
+  view: "clips", // clips | connections
+  connections: [],
+  streamers: [],
   status: "ready",
   streamer: "",
   q: "",
@@ -76,7 +79,7 @@ const initials = (name) => (name || "?").trim().slice(0, 1).toUpperCase();
 
 async function api(path, opts = {}) {
   const res = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "X-Clipper-Panel": "1" },
     ...opts,
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
@@ -143,11 +146,11 @@ function renderSidebar() {
   $("#status-nav").replaceChildren(...STATUSES.map((s) => {
     const n = s.id ? counts[s.id] || 0 : total;
     return el("button", {
-      class: `rail-item ${state.status === s.id ? "on" : ""}`,
+      class: `rail-item ${state.view === "clips" && state.status === s.id ? "on" : ""}`,
       style: `--item-color:${s.color}`,
       "data-tip": `${s.label} · ${fmtNum(n)}`,
       "aria-label": s.label,
-      onclick: () => { state.status = s.id; closeDrawer(); closeMobileMenu(); loadClips({ keepOpen: false }); renderSidebar(); },
+      onclick: () => { state.status = s.id; setView("clips"); closeDrawer(); closeMobileMenu(); loadClips({ keepOpen: false }); renderSidebar(); },
     },
       el("span", { class: "rail-ico" },
         svg(ICONS[s.id || "all"]),
@@ -218,6 +221,7 @@ $("#copy-folder").addEventListener("click", async () => {
 });
 
 function setStreamer(login) {
+  setView("clips");
   state.streamer = state.streamer === login ? "" : login;
   closeDrawer();
   closeMobileMenu();
@@ -628,3 +632,186 @@ setInterval(() => {
   loadStats();
   if (state.openIndex < 0) loadClips(); // don't reshuffle the grid under the reviewer
 }, REFRESH_MS);
+
+
+// ---------------------------------------------------------------- connections view
+const LOGOS = { twitch: "tw", kick: "K", anthropic: "AI" };
+
+function setView(view) {
+  if (state.view === view) return;
+  state.view = view;
+  const conn = view === "connections";
+  $("#connections-view").classList.toggle("hidden", !conn);
+  for (const id of ["#stats", "#grid", "#empty"]) $(id).classList.toggle("hidden", conn);
+  if (!conn) $("#empty").classList.toggle("hidden", state.clips.length > 0);
+  $(".search").classList.toggle("hidden", conn);
+  $("#view-count").classList.toggle("hidden", conn);
+  $("#nav-connections").classList.toggle("on", conn);
+  $(".crumb").textContent = conn ? "~/config/" : "~/cortes/";
+  if (conn) {
+    $("#view-title").textContent = "Conexões";
+    closeDrawer();
+    loadConnections();
+    loadStreamers();
+  } else {
+    renderGrid();
+  }
+  renderSidebar();
+}
+
+async function loadConnections() {
+  try {
+    state.connections = await api("/api/connections");
+  } catch (e) { toast(`conexões: ${e.message}`, "bad"); return; }
+  renderConnections();
+}
+
+function connState(c) {
+  if (c.last_test) return c.last_test.ok ? ["ok", "conectado"] : ["err", "erro"];
+  if (c.fields.length && !c.configured) return [c.required ? "pending" : "", c.required ? "não configurado" : "opcional"];
+  return ["", "não testado"];
+}
+
+function renderConnections() {
+  const cards = state.connections.map((c) => {
+    const [cls, label] = connState(c);
+    const inputs = {};
+    const fields = c.fields.map((f) => {
+      const input = el("input", {
+        type: f.secret ? "password" : "text",
+        placeholder: f.is_set ? (f.preview || "definido") : "não definido",
+        value: f.secret ? "" : (f.preview || ""),
+        autocomplete: "off", spellcheck: "false",
+      });
+      inputs[f.key] = input;
+      return el("label", { class: "conn-field" }, f.label, input);
+    });
+    const result = c.last_test
+      ? el("div", { class: `conn-result ${c.last_test.ok ? "ok" : "err"}`, text: `${c.last_test.message}  (${c.last_test.latency_ms}ms)` })
+      : null;
+
+    const save = async () => {
+      const values = {};
+      for (const f of c.fields) {
+        const v = inputs[f.key].value.trim();
+        if (f.secret ? v : v !== (f.preview || "")) values[f.key] = v;
+      }
+      if (!Object.keys(values).length) { toast("nada para salvar"); return; }
+      try {
+        await api(`/api/connections/${c.id}`, { method: "PUT", body: { values } });
+        toast(`${c.name}: salvo no .env`, "ok");
+        await test();
+      } catch (e) { toast(`${c.name}: ${e.message}`, "bad"); }
+    };
+    const test = async () => {
+      btnTest.disabled = true; btnTest.textContent = "testando…";
+      try {
+        const r = await api(`/api/connections/${c.id}/test`, { method: "POST" });
+        toast(`${c.name}: ${r.ok ? "ok" : "falhou"}`, r.ok ? "ok" : "bad");
+      } catch (e) { toast(`${c.name}: ${e.message}`, "bad"); }
+      await loadConnections();
+    };
+    const clear = async () => {
+      if (!confirm(`Remover as credenciais de ${c.name} do .env?`)) return;
+      const values = Object.fromEntries(c.fields.map((f) => [f.key, null]));
+      try { await api(`/api/connections/${c.id}`, { method: "PUT", body: { values } }); toast(`${c.name}: removido`); }
+      catch (e) { toast(e.message, "bad"); }
+      loadConnections();
+    };
+    const btnTest = el("button", { class: "btn btn-ghost", type: "button", onclick: test }, "Testar");
+    return el("div", { class: `conn-card ${cls}` },
+      el("div", { class: "conn-head" },
+        el("div", { class: `conn-logo ${c.id}`, text: LOGOS[c.id] || "?" }),
+        el("div", { class: "conn-title" },
+          el("div", { class: "conn-name", text: c.name }),
+          el("div", { class: "conn-desc", text: c.description })),
+        el("span", { class: "conn-state", text: label })),
+      fields.length ? el("div", { class: "conn-fields" }, fields) : null,
+      result,
+      el("div", { class: "conn-actions" },
+        fields.length ? el("button", { class: "btn btn-primary", type: "button", onclick: save }, "Salvar") : null,
+        btnTest,
+        c.fields.some((f) => f.is_set) ? el("button", { class: "btn btn-ghost", type: "button", onclick: clear }, "Limpar") : null,
+        el("span", { class: "spacer" }),
+        el("a", { href: c.docs_url, target: "_blank", rel: "noopener", text: "docs ↗" })),
+    );
+  });
+  cards.push(el("div", { class: "conn-card dashed" },
+    el("div", { class: "conn-head" },
+      el("div", { class: "conn-logo other", text: "+" }),
+      el("div", { class: "conn-title" },
+        el("div", { class: "conn-name", text: "Outra plataforma" }),
+        el("div", { class: "conn-desc" },
+          "YouTube, TikTok Live… implemente ", el("code", { text: "ClipSource" }), " em ",
+          el("code", { text: "src/clipper/sources/" }), " e registre aqui.")))));
+  $("#conn-grid").replaceChildren(...cards);
+
+  const problems = state.connections.filter((c) => (c.last_test && !c.last_test.ok) || (c.required && c.fields.length && !c.configured)).length;
+  $("#conn-notif").classList.toggle("hidden", problems === 0);
+  $("#conn-count").textContent = `${state.connections.filter((c) => c.last_test?.ok).length}/${state.connections.length}`;
+}
+
+async function loadStreamers() {
+  try { state.streamers = await api("/api/streamers"); }
+  catch (e) { toast(`streamers: ${e.message}`, "bad"); return; }
+  renderStreamers();
+}
+
+async function streamerCall(method, path, body, okMsg) {
+  try {
+    state.streamers = await api(path, { method, body });
+    if (okMsg) toast(okMsg, "ok");
+    renderStreamers();
+    loadStats();
+    return true;
+  } catch (e) { toast(e.message, "bad"); return false; }
+}
+
+function renderStreamers() {
+  const head = el("div", { class: "st-row head" },
+    el("span"), el("span", { text: "nome" }), el("span", { text: "plataforma" }), el("span", { class: "col-login", text: "login" }),
+    el("span", { text: "min views" }), el("span", { class: "col-layout", text: "layout" }), el("span", { text: "ativo" }), el("span"));
+  const rows = state.streamers.map((s) => {
+    const base = `/api/streamers/${s.platform}/${encodeURIComponent(s.login)}`;
+    const min = el("input", { type: "number", min: "0", placeholder: "global", value: s.min_views ?? "" });
+    min.addEventListener("change", () => {
+      const v = min.value.trim();
+      streamerCall("PATCH", base, v === "" ? { clear_min_views: true } : { min_views: Number(v) }, `${s.name}: min views ${v || "global"}`);
+    });
+    const toggle = el("label", { class: "toggle" }, el("input", { type: "checkbox", checked: s.enabled }), el("span", { class: "toggle-ui" }));
+    toggle.querySelector("input").addEventListener("change", (e) =>
+      streamerCall("PATCH", base, { enabled: e.target.checked }, `${s.name} ${e.target.checked ? "ativado" : "pausado"}`));
+    return el("div", { class: `st-row ${s.enabled ? "" : "off"}` },
+      el("span", { class: `avatar ${s.platform}`, text: initials(s.name) }),
+      el("span", { class: "name", text: s.name }),
+      el("span", { class: `chip ${s.platform}`, text: s.platform.toUpperCase() }),
+      el("span", { class: "muted col-login", text: s.login }),
+      min,
+      el("span", { class: "layout-tag col-layout" }, el("b", { text: s.layout }),
+        s.layout === "stack" ? ` · ${s.facecam_positions} pos` : ""),
+      toggle,
+      el("button", {
+        class: "st-del", title: "Remover", type: "button",
+        onclick: () => { if (confirm(`Remover ${s.name} (${s.platform}) do monitoramento?`)) streamerCall("DELETE", base, undefined, `${s.name} removido`); },
+      }, svg('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>')),
+    );
+  });
+  $("#streamer-table").replaceChildren(head, ...rows);
+}
+
+$("#nav-connections").addEventListener("click", () => { closeMobileMenu(); setView(state.view === "connections" ? "clips" : "connections"); });
+$("#add-streamer").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const body = {
+    platform: $("#as-platform").value,
+    login: $("#as-login").value.trim(),
+    name: $("#as-name").value.trim(),
+    min_views: $("#as-min").value === "" ? null : Number($("#as-min").value),
+  };
+  let ok = await streamerCall("POST", "/api/streamers", body, `${body.name} adicionado`);
+  if (!ok && confirm("Não deu para confirmar que o canal existe. Adicionar mesmo assim?")) {
+    ok = await streamerCall("POST", "/api/streamers", { ...body, verify: false }, `${body.name} adicionado (sem verificação)`);
+  }
+  if (ok) e.target.reset();
+});
+loadConnections();

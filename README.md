@@ -101,6 +101,7 @@ O modelo do Whisper é baixado na build, então o primeiro clip não espera down
 - **Menu lateral recolhível** (trilho de ícones ↔ expandido), com bolinhas de pendência por status e por streamer; vira menu deslizante no celular
 - **Gaveta de detalhes**: player grande, legenda sugerida pronta pra copiar, transcrição, download do MP4 e link do clip original
 - **Re-render em background** com gancho novo (texto / IA / sem gancho) e **corte de início e fim** marcado no próprio player
+- **Conexões** (`~/config/`): credenciais da Twitch e do Claude com **teste de conexão ao vivo**, status da Kick e gestão dos streamers monitorados (adicionar com verificação do canal, pausar, mínimo de views, remover) — sem editar arquivo nem reiniciar o loop
 
 | Atalho | Ação | | Atalho | Ação |
 |:-:|---|---|:-:|---|
@@ -110,7 +111,10 @@ O modelo do Whisper é baixado na build, então o primeiro clip não espera down
 | <kbd>U</kbd> | Voltar pra revisão | | <kbd>/</kbd> | Buscar |
 | <kbd>Espaço</kbd> | Play / pause | | <kbd>[</kbd> | Recolher / expandir o menu |
 
-> ⚠️ O painel **não tem login**. Por padrão escuta só em `127.0.0.1`. Não exponha na internet sem um proxy com autenticação.
+> ⚠️ O painel **não tem login**. Por padrão escuta só em `127.0.0.1`, recusa `Host` que não seja local (proteção contra DNS rebinding)
+> e só aceita escrita do próprio painel (mesma origem + cabeçalho próprio). As credenciais vão para o `.env` local e nunca
+> voltam para o navegador. Para acessar pela rede, libere o host em `CLIPPER_PANEL_ALLOWED_HOSTS` — e não exponha na internet
+> sem um proxy com autenticação.
 
 ---
 
@@ -131,6 +135,8 @@ streamers:
         - { x: 0.784, y: 0.098, w: 0.213, h: 0.211 }
       facecam_ratio: 0.30     # fração da altura 9:16 ocupada pela facecam
 ```
+
+Dá pra adicionar, pausar e remover streamers pela tela **Conexões** do painel; a calibração da facecam continua no YAML.
 
 **Como calibrar:** `clipper frame <url-de-um-clip>` salva um PNG; meça a câmera em frações da tela e confira com
 `clipper render <url> --streamer <login>`. Se o streamer troca a câmera de canto, liste as posições em
@@ -158,6 +164,7 @@ streamers:
 | `CLIPPER_OUTPUT_DIR` | `data/output` | Onde os vídeos prontos são salvos |
 | `CLIPPER_FONTS_DIR` | `assets/fonts` | Fonte bold do gancho e das legendas (ex.: Montserrat, OFL) |
 | `CLIPPER_STREAMERS_FILE` | `config/streamers.yaml` | Catálogo de streamers |
+| `CLIPPER_PANEL_ALLOWED_HOSTS` | *(vazio)* | Hosts extras aceitos pelo painel além de `localhost` (ex.: IP da rede local) |
 
 ---
 

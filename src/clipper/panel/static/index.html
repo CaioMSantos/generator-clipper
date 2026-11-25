@@ -33,6 +33,18 @@
         <div id="streamer-list" class="streamer-list"></div>
       </div>
 
+      <div class="side-section">
+        <div class="side-title"><span class="lbl">Sistema</span><span class="rule"></span></div>
+        <button class="rail-item" id="nav-connections" data-tip="Conexões" style="--item-color:var(--accent)">
+          <span class="rail-ico">
+            <svg viewBox="0 0 24 24"><path d="M9 7V3M15 7V3"/><path d="M6 7h12v4a6 6 0 0 1-12 0z"/><path d="M12 17v4"/></svg>
+            <span class="notif hidden" id="conn-notif"></span>
+          </span>
+          <span class="lbl">Conexões</span>
+          <span class="n" id="conn-count"></span>
+        </button>
+      </div>
+
       <div class="side-foot">
         <div class="rail-item static" id="activity" data-tip="">
           <span class="rail-ico"><span class="pulse" id="pulse"></span></span>
@@ -74,6 +86,32 @@
           </button>
         </div>
       </header>
+
+      <section class="connections hidden" id="connections-view">
+        <div class="section-head">
+          <span>// fontes e integrações</span>
+          <span class="hint">credenciais ficam no <code>.env</code> local · nunca voltam pro navegador</span>
+        </div>
+        <div class="conn-grid" id="conn-grid"></div>
+
+        <div class="section-head">
+          <span>// streamers monitorados</span>
+          <span class="hint">o loop recarrega a configuração no próximo ciclo</span>
+        </div>
+        <div class="card streamer-table-card">
+          <form class="add-streamer" id="add-streamer" autocomplete="off">
+            <select id="as-platform" aria-label="Plataforma">
+              <option value="twitch">twitch</option>
+              <option value="kick">kick</option>
+            </select>
+            <input id="as-login" placeholder="login (slug do canal)" required />
+            <input id="as-name" placeholder="nome de exibição" required />
+            <input id="as-min" type="number" min="0" placeholder="min views" />
+            <button class="btn btn-primary" type="submit">+ Adicionar</button>
+          </form>
+          <div class="streamer-table" id="streamer-table"></div>
+        </div>
+      </section>
 
       <section class="stats" id="stats"></section>
 
