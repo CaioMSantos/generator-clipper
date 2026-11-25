@@ -4,7 +4,10 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Clipper · Painel</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23ff3d7f'/%3E%3Cpath d='M12 9l12 7-12 7z' fill='white'/%3E%3C/svg%3E" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2306080b' stroke='%2322d3ee' stroke-width='2'/%3E%3Cpath d='M9 11l5 5-5 5' fill='none' stroke='%2322d3ee' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M16 22h7' stroke='%2322d3ee' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" />
   <link rel="stylesheet" href="/static/app.css" />
 </head>
 <body>
@@ -15,12 +18,10 @@
           <svg class="ico-expand" viewBox="0 0 24 24"><path d="M4 12h12"/><path d="M12 8l4 4-4 4"/><path d="M20 5v14"/></svg>
         </button>
         <div class="brand">
-          <div class="brand-mark">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5l11 7-11 7z" fill="currentColor"/></svg>
-          </div>
+          <div class="brand-mark" aria-hidden="true">&gt;_</div>
           <div class="lbl">
-            <div class="brand-name">Clipper</div>
-            <div class="brand-sub">GTA VI · cortes</div>
+            <div class="brand-name">clipper<span class="caret"></span></div>
+            <div class="brand-sub">gta6 · cortes · v0.1</div>
           </div>
         </div>
       </div>
@@ -55,13 +56,15 @@
           <button class="icon-btn menu-btn" id="menu" aria-label="Abrir menu">
             <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
           </button>
+          <span class="crumb">~/cortes/</span>
           <h1 id="view-title">Para revisar</h1>
           <span class="count-pill" id="view-count">0</span>
+          <span class="live" id="live" title="Status do loop"><span class="pulse"></span><span id="live-text">OFFLINE</span></span>
         </div>
         <div class="topbar-actions">
           <label class="search">
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
-            <input id="search" type="search" placeholder="Buscar por título, gancho ou fala…  ( / )" autocomplete="off" />
+            <input id="search" type="search" placeholder="grep título | gancho | fala   [ / ]" autocomplete="off" />
           </label>
           <button class="jobs-pill hidden" id="jobs-pill" title="Re-renders em andamento">
             <span class="spinner"></span><span id="jobs-text"></span>
@@ -76,9 +79,9 @@
 
       <section class="grid" id="grid" aria-live="polite"></section>
       <div class="empty hidden" id="empty">
-        <div class="empty-art">🎬</div>
-        <div class="empty-title">Nada por aqui</div>
-        <div class="empty-sub">Quando o loop renderizar novos cortes, eles aparecem aqui sozinhos.</div>
+        <div class="empty-art">[ 0 ]</div>
+        <div class="empty-title">nenhum corte aqui</div>
+        <div class="empty-sub">o loop está monitorando — novos cortes aparecem sozinhos.</div>
       </div>
     </main>
   </div>
@@ -132,8 +135,8 @@
           </div>
           <textarea id="d-caption" rows="5" spellcheck="false"></textarea>
           <div class="row-links">
-            <a id="d-download" class="link-btn" href="#">⬇ Baixar MP4</a>
-            <a id="d-source" class="link-btn" href="#" target="_blank" rel="noopener">↗ Clip original</a>
+            <a id="d-download" class="link-btn" href="#">↓ download.mp4</a>
+            <a id="d-source" class="link-btn" href="#" target="_blank" rel="noopener">↗ clip original</a>
           </div>
         </div>
 
@@ -180,7 +183,7 @@
             <span>Legendas</span>
           </label>
 
-          <button class="btn btn-primary wide" id="rerender">Re-renderizar</button>
+          <button class="btn btn-primary wide" id="rerender">▶ Re-renderizar</button>
         </div>
 
         <details class="card transcript">

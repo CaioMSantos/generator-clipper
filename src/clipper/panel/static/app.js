@@ -106,6 +106,8 @@ async function loadStats() {
   } catch (e) {
     $("#last-activity").textContent = "painel sem conexão";
     $("#pulse").className = "pulse";
+    $("#live").className = "live";
+    $("#live-text").textContent = "OFFLINE";
   }
 }
 
@@ -179,8 +181,12 @@ function renderSidebar() {
 
   const last = state.stats?.last_activity;
   const ageS = last ? (Date.now() - new Date(last).getTime()) / 1000 : Infinity;
-  $("#pulse").className = `pulse ${ageS < 600 ? "live" : "idle"}`;
-  const activity = last ? `Loop ativo ${ago(last)}` : "Sem atividade ainda";
+  const live = ageS < 600;
+  $("#pulse").className = `pulse ${live ? "live" : "idle"}`;
+  $("#live").className = `live ${live ? "on" : last ? "idle" : ""}`;
+  $("#live").querySelector(".pulse").className = `pulse ${live ? "live" : last ? "idle" : ""}`;
+  $("#live-text").textContent = live ? "LIVE" : last ? "IDLE" : "OFFLINE";
+  const activity = !last ? "sem atividade ainda" : ageS < 600 ? `loop ativo · ${ago(last)}` : `última atividade ${ago(last)}`;
   $("#last-activity").textContent = activity;
   $("#activity").dataset.tip = activity;
   $("#output-dir").textContent = state.stats?.output_dir || "";
@@ -207,7 +213,7 @@ $("#show-help").addEventListener("click", () => { closeMobileMenu(); $("#help").
 $("#copy-folder").addEventListener("click", async () => {
   const path = state.stats?.output_dir;
   if (!path) return;
-  try { await navigator.clipboard.writeText(path); toast("📁 Caminho da pasta copiado", "ok"); }
+  try { await navigator.clipboard.writeText(path); toast("caminho da pasta copiado", "ok"); }
   catch { toast(path); }
 });
 
@@ -222,14 +228,15 @@ function setStreamer(login) {
 function renderStats() {
   const c = state.stats?.by_status || {};
   const cards = [
-    { label: "Para revisar", value: c.ready || 0, color: "var(--warn)" },
-    { label: "Aprovados", value: c.approved || 0, color: "var(--ok)" },
-    { label: "Postados", value: c.posted || 0, color: "var(--info)" },
-    { label: "Na fila do loop", value: c.discovered || 0, color: "var(--accent)" },
+    { label: "revisar", value: c.ready || 0, color: "var(--warn)", sub: "status=ready" },
+    { label: "aprovados", value: c.approved || 0, color: "var(--ok)", sub: "status=approved" },
+    { label: "postados", value: c.posted || 0, color: "var(--info)", sub: "status=posted" },
+    { label: "fila do loop", value: c.discovered || 0, color: "var(--accent)", sub: "status=discovered" },
   ];
   $("#stats").replaceChildren(...cards.map((s) => el("div", { class: "stat", style: `--c:${s.color}` },
-    el("div", { class: "stat-label" }, el("span", { class: "dot" }), s.label),
+    el("div", { class: "stat-label", text: s.label }),
     el("div", { class: "stat-value", text: fmtNum(s.value) }),
+    el("div", { class: "stat-sub", text: s.sub }),
   )));
 }
 
@@ -292,8 +299,11 @@ function clipCard(clip, index, busy) {
       el("div", { class: "meta" },
         el("span", { class: `avatar ${clip.platform}`, text: initials(clip.streamer_name) }),
         el("span", { class: "who", text: clip.streamer_name }),
-        el("span", { text: `👁 ${fmtNum(clip.views)}` }),
-        el("span", { text: `⏱ ${fmtDur(clip.duration_s)}` }),
+      ),
+      el("div", { class: "readout" },
+        "views=", el("b", { text: fmtNum(clip.views) }),
+        " dur=", el("b", { text: fmtDur(clip.duration_s) }),
+        " score=", el("b", { text: clip.score.toFixed(1) }),
       ),
     ),
     busy || clip.status === "rendering"
@@ -308,7 +318,7 @@ async function setStatus(clip, status, { advance = false } = {}) {
   if (!clip) return;
   try {
     const updated = await api(`/api/clips/${encodeURIComponent(clip.key)}/status`, { method: "POST", body: { status } });
-    const msg = { approved: "✓ Aprovado", rejected: "✕ Rejeitado", posted: "🚀 Marcado como postado", ready: "↺ De volta para revisão" }[status];
+    const msg = { approved: "aprovado ✓", rejected: "rejeitado ✕", posted: "marcado como postado", ready: "de volta para revisão" }[status];
     toast(msg, status === "rejected" ? "bad" : "ok");
     const idx = state.clips.findIndex((c) => c.key === clip.key);
     const leavesView = state.status && state.status !== status;
@@ -390,11 +400,11 @@ function renderDrawerMeta() {
   st.textContent = STATUS_LABEL[clip.status] || clip.status;
   $("#d-title").textContent = clip.hook || clip.title || "(sem título)";
   $("#d-metrics").replaceChildren(...[
-    metric(fmtNum(clip.views), "views"),
-    metric(fmtDur(clip.duration_s), "duração"),
-    metric(clip.score.toFixed(1), "score"),
-    clip.cluster_size > 1 ? metric(`×${clip.cluster_size}`, "clips do lance") : null,
-    metric(ago(clip.updated_at), "atualizado"),
+    metric("views", fmtNum(clip.views)),
+    metric("dur", fmtDur(clip.duration_s)),
+    metric("score", clip.score.toFixed(1)),
+    clip.cluster_size > 1 ? metric("cluster", `×${clip.cluster_size}`) : null,
+    metric("updated", ago(clip.updated_at)),
   ].filter(Boolean));
   $("#d-caption").value = clip.suggested_caption || "";
   $("#d-transcript").textContent = clip.transcript || "Sem transcrição.";
@@ -409,11 +419,11 @@ function renderDrawerMeta() {
     b.classList.toggle("active", b.dataset.status !== "ready" && b.dataset.status === clip.status));
   const busy = state.jobs.some((j) => j.key === clip.key && (j.state === "queued" || j.state === "running"));
   $("#rerender").disabled = busy || clip.status === "rendering";
-  $("#rerender").textContent = busy ? "Renderizando…" : "Re-renderizar";
+  $("#rerender").textContent = busy ? "renderizando…" : "▶ Re-renderizar";
 }
 
-function metric(value, label) {
-  return el("span", { class: "metric" }, el("b", { text: value }), label);
+function metric(key, value) {
+  return el("span", { class: "metric" }, `${key}=`, el("b", { text: value }));
 }
 
 // ---------------------------------------------------------------- editor (hook + trim)
@@ -487,7 +497,7 @@ async function rerender() {
   try {
     const job = await api(`/api/clips/${encodeURIComponent(clip.key)}/rerender`, { method: "POST", body });
     state.jobs = [job, ...state.jobs.filter((j) => j.id !== job.id)];
-    toast("Re-render na fila 🎬", "ok");
+    toast("re-render enfileirado", "ok");
     renderJobs();
     renderDrawerMeta();
     renderGrid();
@@ -512,7 +522,7 @@ async function pollJobs() {
       seenDone.add(j.id);
       if (j.finished_at && Date.now() - new Date(j.finished_at).getTime() < 60000) {
         finished = true;
-        toast(j.state === "done" ? "✓ Re-render pronto" : `✕ Re-render falhou: ${j.error || ""}`, j.state === "done" ? "ok" : "bad");
+        toast(j.state === "done" ? "re-render pronto ✓" : `re-render falhou: ${j.error || ""}`, j.state === "done" ? "ok" : "bad");
       }
     }
   }
@@ -561,11 +571,11 @@ async function copyCaption() {
   if (!text) { toast("Sem legenda para copiar", "bad"); return; }
   try {
     await navigator.clipboard.writeText(text);
-    toast("📋 Legenda copiada", "ok");
+    toast("legenda copiada", "ok");
   } catch {
     $("#d-caption").select();
     document.execCommand("copy");
-    toast("📋 Legenda copiada", "ok");
+    toast("legenda copiada", "ok");
   }
 }
 
