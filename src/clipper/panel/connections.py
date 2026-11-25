@@ -280,6 +280,7 @@ class CatalogEditor:
     def update(
         self, platform: Platform, login: str, *, enabled: bool | None = None,
         min_views: int | None | Literal["unset"] = "unset", name: str | None = None,
+        template: str | None | Literal["unset"] = "unset",
     ) -> None:  # fmt: skip
         doc = self._doc()
         idx = self._find(doc, platform, login)
@@ -298,6 +299,11 @@ class CatalogEditor:
                 item["min_views"] = min_views
         if name is not None and name.strip():
             item["name"] = name.strip()
+        if template != "unset":
+            if template is None:
+                item.pop("template", None)
+            else:
+                item["template"] = template
         self._save(doc)
 
     @staticmethod

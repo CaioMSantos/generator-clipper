@@ -10,6 +10,7 @@ from pathlib import Path
 
 from clipper.config import BlurLayout, Layout, Rect, StackLayout
 from clipper.media import MediaError
+from clipper.media.compose import Composition, build_compose_graph, write_slot_assets
 from clipper.media.fonts import FontSpec
 
 log = logging.getLogger(__name__)
@@ -32,11 +33,13 @@ class HookOverlay:
     duration_s: float = HOOK_DURATION_S
 
 
-def hook_center_y(layout: Layout) -> int:
+def hook_center_y(layout: Layout | Composition) -> int:
     """Where the hook card is centered: on the seam between facecam and gameplay.
 
     For blur, that is the top edge of the (assumed 16:9) foreground video.
     """
+    if isinstance(layout, Composition):
+        return layout.hook_center_px
     if isinstance(layout, StackLayout):
         return int(round(OUT_H * layout.facecam_ratio / 2)) * 2
     fg_h = int(OUT_W * layout.zoom * 9 / 16)
@@ -57,16 +60,19 @@ def _fill(w: int, h: int) -> str:
 
 
 def build_filtergraph(
-    layout: Layout,
+    layout: Layout | Composition,
     with_captions: bool,
     hook: HookOverlay | None = None,
     with_fontsdir: bool = False,
 ) -> str:
     """Returns a filter_complex whose final video label is [v].
 
-    Input 0 is the clip; when `hook` is set, input 1 is the looped hook PNG.
+    Input 0 is the clip; when `hook` is set, input 1 is the looped hook PNG; template slot
+    assets (masks/borders) follow as looped PNG inputs.
     """
-    if isinstance(layout, StackLayout):
+    if isinstance(layout, Composition):
+        graph, _ = build_compose_graph(layout, first_asset_input=2 if hook is not None else 1)
+    elif isinstance(layout, StackLayout):
         face_h = int(round(OUT_H * layout.facecam_ratio / 2)) * 2
         game_h = OUT_H - face_h
         graph = (
@@ -114,7 +120,7 @@ def _require_ffmpeg() -> str:
 def render_vertical(
     source: Path,
     output: Path,
-    layout: Layout,
+    layout: Layout | Composition,
     captions_ass: str | None,
     work_dir: Path,
     *,
@@ -153,12 +159,18 @@ def render_vertical(
         # Input seeking: fast and frame-accurate with re-encoding; output timestamps start at 0.
         trim_args = ["-ss", f"{start:.3f}", "-to", f"{end:.3f}"]
 
+    asset_inputs: list[str] = []
+    if isinstance(layout, Composition):
+        for asset in write_slot_assets(layout, work_dir):
+            asset_inputs += ["-loop", "1", "-framerate", "60", "-i", asset.filename]
+
     tmp_out = output.with_suffix(".tmp.mp4")
     cmd = [
         ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
         *trim_args,
         "-i", str(source.resolve()),
         *hook_input,
+        *asset_inputs,
         "-filter_complex", build_filtergraph(
             layout, with_captions=bool(captions_ass), hook=hook, with_fontsdir=font is not None
         ),

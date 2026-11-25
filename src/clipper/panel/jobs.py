@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 
+from clipper.config import ConfigError, load_catalog
 from clipper.media import MediaError
 from clipper.models import ClipStatus
 from clipper.pipeline import Pipeline
@@ -32,6 +33,7 @@ class RerenderRequest:
     hook_text: str | None = None          # None = ask the AI, "" = no hook
     trim: tuple[float, float] | None = None
     captions: bool = True
+    template_id: str | None = None        # None = the streamer's template
 
 
 @dataclass
@@ -83,6 +85,10 @@ class RerenderQueue:
             if self._pipeline is None:
                 self._pipeline = self._factory()  # loads whisper lazily on first transcription
             pipe = self._pipeline
+            try:  # pick up catalog edits (template, calibration) made in the panel since start
+                pipe.catalog = load_catalog(pipe.settings.streamers_file)
+            except ConfigError as exc:
+                log.warning("catalog reload failed, using the cached one: %s", exc)
             row = pipe.store.get(job.key)
             if row is None:
                 raise MediaError(f"clip not found: {job.key}")
@@ -93,6 +99,7 @@ class RerenderQueue:
                 captions=job.request.captions,
                 hook_text=job.request.hook_text,
                 trim=job.request.trim,
+                template_id=job.request.template_id,
             )
             pipe.store.set_status(job.key, ClipStatus.READY, output_path=str(result.output))
             job.state = JobState.DONE

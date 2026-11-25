@@ -20,10 +20,11 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 
 from clipper.config import (
-    BlurLayout, ConfigError, Layout, Platform, Rect, Settings, StackLayout, StreamerCatalog, load_catalog,
+    Template, BlurLayout, ConfigError, Layout, Platform, Rect, Settings, StackLayout, StreamerCatalog, load_catalog,
 )
 from clipper.media import MediaError
 from clipper.media.download import download_clip
+from clipper.media.compose import BUILTIN_IDS, TemplateStore
 from clipper.media.facecam import score_candidates
 from clipper.media.render import extract_frame
 from clipper.models import ClipStatus
@@ -71,6 +72,7 @@ class ClipView(BaseModel):
     suggested_caption: str | None = None
     transcript: str | None = None
     trim_start: float = 0.0  # where the rendered video starts inside the source clip
+    template: str | None = None  # template used for the current render
 
 
 class StreamerStat(BaseModel):
@@ -93,6 +95,7 @@ class StatusUpdate(BaseModel):
 
 class RerenderBody(BaseModel):
     hook: str | None = Field(default=None, description='None = AI writes it, "" = no hook')
+    template: str | None = Field(default=None, description="template id; None = the streamer's")
     start: float | None = Field(default=None, ge=0)
     end: float | None = Field(default=None, gt=0)
     captions: bool = True
@@ -154,6 +157,7 @@ class StreamerView(BaseModel):
     min_views: int | None
     layout: str
     facecam_positions: int
+    template: str | None
 
 
 class StreamerCreate(BaseModel):
@@ -169,6 +173,13 @@ class StreamerPatch(BaseModel):
     name: str | None = Field(default=None, max_length=60)
     min_views: int | None = Field(default=None, ge=0)
     clear_min_views: bool = False
+    template: str | None = None
+    clear_template: bool = False
+
+
+class TemplateView(Template):
+    builtin: bool
+    used_by: list[str]
 
 
 class LayoutBody(BaseModel):
@@ -255,6 +266,7 @@ def to_view(row: ClipRow) -> ClipView:
         video_url=f"/media/{row.key}?v={version}" if has_video else None,
         hook=meta.get("hook"), suggested_caption=meta.get("suggested_caption"),
         transcript=meta.get("transcript"), trim_start=_trim_start(meta),
+        template=meta.get("template") if isinstance(meta.get("template"), str) else None,
     )  # fmt: skip
 
 
@@ -285,6 +297,7 @@ def create_app(
     queue = RerenderQueue(pipeline_factory)
     env = EnvStore(env_path)
     editor = CatalogEditor(settings.streamers_file)
+    templates = TemplateStore(settings.templates_file)
     tests = tester or ConnectionTester()
     hosts = LOCAL_HOSTS | {h.lower() for h in (allowed_hosts or set())}
 
@@ -382,7 +395,11 @@ def create_app(
         if body.end is not None and row.clip.duration_s and body.end > row.clip.duration_s + 0.5:
             raise HTTPException(422, f"end is past the clip duration ({row.clip.duration_s:.0f}s)")
         trim = (body.start, body.end) if body.start is not None and body.end is not None else None
-        job = queue.submit(key, RerenderRequest(hook_text=body.hook, trim=trim, captions=body.captions))
+        if body.template is not None and templates.get(body.template) is None:
+            raise HTTPException(404, f"molde '{body.template}' não existe")
+        job = queue.submit(
+            key, RerenderRequest(hook_text=body.hook, trim=trim, captions=body.captions, template_id=body.template)
+        )
         return _job_view(job)
 
     @app.get("/api/jobs", response_model=list[JobView])
@@ -441,6 +458,7 @@ def create_app(
                 name=s.name, platform=s.platform.value, login=s.login.lower(), enabled=s.enabled,
                 min_views=s.min_views, layout=s.layout.mode,
                 facecam_positions=(1 + len(s.layout.facecam_alternates)) if isinstance(s.layout, StackLayout) else 0,
+                template=s.template,
             )
             for s in current_catalog().streamers
         ]  # fmt: skip
@@ -479,8 +497,15 @@ def create_app(
             min_views = None
         elif body.min_views is not None:
             min_views = body.min_views
+        template: str | None | Literal["unset"] = "unset"
+        if body.clear_template:
+            template = None
+        elif body.template is not None:
+            if templates.get(body.template) is None:
+                raise HTTPException(404, f"molde '{body.template}' não existe")
+            template = body.template
         try:
-            editor.update(platform, login, enabled=body.enabled, min_views=min_views, name=body.name)
+            editor.update(platform, login, enabled=body.enabled, min_views=min_views, name=body.name, template=template)
         except KeyError as exc:
             raise HTTPException(404, str(exc)) from exc
         except ValueError as exc:
@@ -584,6 +609,48 @@ def create_app(
         else:
             msg = f"CAM {score.chosen + 1} venceu ({score.hits[score.chosen]}/{score.samples} frames com rosto)"
         return DetectView(samples=score.samples, hits=score.hits, chosen=score.chosen, message=msg)
+
+    # ---- templates ("moldes") -------------------------------------------------
+
+    def template_views() -> list[TemplateView]:
+        users: dict[str, list[str]] = {}
+        for s in current_catalog().streamers:
+            if s.template:
+                users.setdefault(s.template, []).append(f"{s.name} ({s.platform.value})")
+        return [
+            TemplateView(**t.model_dump(), builtin=t.id in BUILTIN_IDS, used_by=users.get(t.id, []))
+            for t in templates.all()
+        ]
+
+    @app.get("/api/templates", response_model=list[TemplateView])
+    def list_templates() -> list[TemplateView]:
+        return template_views()
+
+    @app.put("/api/templates/{template_id}", response_model=list[TemplateView])
+    def put_template(template_id: str, body: Template) -> list[TemplateView]:
+        if body.id != template_id:
+            raise HTTPException(422, "o id do corpo precisa ser igual ao da URL")
+        if template_id in BUILTIN_IDS:
+            raise HTTPException(409, "moldes prontos não podem ser alterados; duplique para editar")
+        try:
+            templates.save(body)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        log.info("template saved: %s", template_id)
+        return template_views()
+
+    @app.delete("/api/templates/{template_id}", response_model=list[TemplateView])
+    def delete_template(template_id: str) -> list[TemplateView]:
+        users = [s.name for s in current_catalog().streamers if s.template == template_id]
+        if users:
+            raise HTTPException(409, f"molde em uso por: {', '.join(users)}")
+        try:
+            templates.delete(template_id)
+        except KeyError as exc:
+            raise HTTPException(404, f"molde '{template_id}' não existe") from exc
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        return template_views()
 
     @app.get("/media/{key}")
     def media(key: str, download: bool = False, store: Store = Depends(get_store)) -> FileResponse:

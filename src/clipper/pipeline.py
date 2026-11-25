@@ -13,6 +13,7 @@ from clipper.config import BlurLayout, Layout, Settings, StackLayout, StreamerCa
 from clipper.media import MediaError
 from clipper.hook import HookWriter
 from clipper.media.captions import CaptionStyle, build_ass
+from clipper.media.compose import Composition, TemplateStore, composition_for
 from clipper.media.fonts import FontSpec
 from clipper.media.hook_card import render_hook_card
 from clipper.media.download import download_clip
@@ -68,6 +69,7 @@ class Pipeline:
         self.hook_writer = hook_writer
         self.font = font
         self.face_detector = face_detector
+        self.templates = TemplateStore(settings.templates_file)
 
     # ---- discovery ----------------------------------------------------------
 
@@ -153,11 +155,13 @@ class Pipeline:
         captions: bool = True,
         hook_text: str | None = None,
         trim: tuple[float, float] | None = None,
+        template_id: str | None = None,
     ) -> RenderResult:
         """Downloads, transcribes, writes the hook and renders.
 
         `hook_text`: None asks the AI, "" renders without a hook, anything else is used as is.
         `trim`: (start, end) in seconds of the source clip.
+        `template_id`: output template ("molde") for this render; default is the streamer's.
         """
         s = self.settings
         basename = f"{clip.platform.value}_{_safe(clip.id)}"
@@ -187,8 +191,10 @@ class Pipeline:
         out_dir = s.output_dir / day
         output = out_dir / f"{_safe(clip.broadcaster_login)}_{basename}.mp4"
         work_dir = s.data_dir / "work" / basename
-        chosen_layout = self._resolve_layout(source, layout or self.layout_for(clip))
+        chosen_layout = self._resolve(source, layout or self.layout_for(clip), template_id or self.template_for(clip))
         style = CaptionStyle(font=self.font.family) if self.font else CaptionStyle()
+        if isinstance(chosen_layout, Composition):
+            style = CaptionStyle(font=style.font, margin_v=chosen_layout.caption_margin_px)
         try:
             overlay = self._prepare_hook(hook, chosen_layout, work_dir) if hook else None
             render_vertical(
@@ -206,10 +212,35 @@ class Pipeline:
 
         metadata = output.with_suffix(".json")
         metadata.write_text(
-            json.dumps(_metadata(clip, score, words, hook, trim), ensure_ascii=False, indent=2),
+            json.dumps(
+                _metadata(clip, score, words, hook, trim)
+                | {"template": chosen_layout.template.id if isinstance(chosen_layout, Composition) else None},
+                ensure_ascii=False, indent=2,
+            ),  # fmt: skip
             encoding="utf-8",
         )
         return RenderResult(output=output, metadata=metadata, words=len(words), hook=hook)
+
+    def template_for(self, clip: Clip) -> str | None:
+        streamer = self.catalog.find(clip.platform, clip.broadcaster_login)
+        return streamer.template if streamer else None
+
+    def _resolve(self, source: Path, layout: Layout, template_id: str | None) -> Layout | Composition:
+        """Classic layout render when no template is set; otherwise a template composition."""
+        if template_id is None:
+            return self._resolve_layout(source, layout)
+        template = self.templates.get(template_id)
+        if template is None:
+            log.warning("template '%s' not found, using the classic layout", template_id)
+            return self._resolve_layout(source, layout)
+        cam = None
+        if isinstance(layout, StackLayout):
+            resolved = self._resolve_layout(source, layout)
+            cam = resolved.facecam if isinstance(resolved, StackLayout) else None
+        comp = composition_for(layout, template, cam)
+        if comp.template.id != template.id:
+            log.info("template '%s' needs a camera; none found in %s, using '%s'", template.id, source.name, comp.template.id)
+        return comp
 
     def _resolve_layout(self, source: Path, layout: Layout) -> Layout:
         """Picks this clip's facecam among the candidates; no face found -> blur."""
@@ -226,7 +257,7 @@ class Pipeline:
             return BlurLayout()
         return layout.model_copy(update={"facecam": found})
 
-    def _prepare_hook(self, hook: str, layout: Layout, work_dir: Path) -> HookOverlay | None:
+    def _prepare_hook(self, hook: str, layout: Layout | Composition, work_dir: Path) -> HookOverlay | None:
         if self.font is None:
             log.warning("hook skipped: no font available")
             return None

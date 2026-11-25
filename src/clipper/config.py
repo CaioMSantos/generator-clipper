@@ -52,6 +52,36 @@ class StackLayout(BaseModel):
 Layout = BlurLayout | StackLayout
 
 
+# ---- output templates ("moldes") ----------------------------------------------
+# A template places sources on the 1080x1920 output. Rects here are normalized to the
+# OUTPUT canvas (the calibration Rects above are normalized to the SOURCE frame).
+
+_HEX = r"^#[0-9a-fA-F]{6}$"
+_SLUG = r"^[a-z0-9][a-z0-9\-]{1,39}$"
+
+
+class SlotSpec(BaseModel):
+    kind: Literal["cam", "game"]
+    dst: Rect
+    fit: Literal["cover", "contain"] = "cover"
+    shape: Literal["rect", "rounded", "circle"] = "rect"
+    border_px: int = Field(default=0, ge=0, le=40)
+    border_color: str = Field(default="#ffffff", pattern=_HEX)
+
+
+class Template(BaseModel):
+    id: str = Field(pattern=_SLUG)
+    name: str = Field(min_length=1, max_length=60)
+    background: Literal["black", "blur"] = "black"
+    slots: list[SlotSpec] = Field(min_length=1, max_length=4)
+    hook_y: float = Field(default=0.30, ge=0.05, le=0.95)     # hook card center
+    caption_y: float = Field(default=0.83, ge=0.30, le=0.95)  # caption baseline
+
+    @property
+    def needs_cam(self) -> bool:
+        return any(s.kind == "cam" for s in self.slots)
+
+
 class Streamer(BaseModel):
     name: str
     platform: Platform
@@ -60,6 +90,8 @@ class Streamer(BaseModel):
     enabled: bool = True
     # Overrides CLIPPER_MIN_VIEWS for this streamer (Kick clips get ~10x fewer views than Twitch).
     min_views: int | None = Field(default=None, ge=0)
+    # Output template id ("molde"); None keeps the classic layout-driven render.
+    template: str | None = None
 
 
 class StreamerCatalog(BaseModel):
@@ -109,6 +141,7 @@ class Settings(BaseSettings):
     hook_model: str = Field(default="claude-opus-5-5", alias="CLIPPER_HOOK_MODEL")
 
     fonts_dir: Path = Field(default=Path("assets/fonts"), alias="CLIPPER_FONTS_DIR")
+    templates_file: Path = Field(default=Path("config/templates.yaml"), alias="CLIPPER_TEMPLATES_FILE")
 
     # Find the facecam per clip (face detection over the candidate rects); no face -> blur layout.
     facecam_detect: bool = Field(default=True, alias="CLIPPER_FACECAM_DETECT")

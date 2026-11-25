@@ -43,6 +43,13 @@
           <span class="lbl">Conexões</span>
           <span class="n" id="conn-count"></span>
         </button>
+        <button class="rail-item" id="nav-templates" data-tip="Moldes" style="--item-color:var(--accent)">
+          <span class="rail-ico">
+            <svg viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M6 9h12"/><circle cx="14.5" cy="5.5" r="1.4"/></svg>
+          </span>
+          <span class="lbl">Moldes</span>
+          <span class="n" id="tpl-count"></span>
+        </button>
       </div>
 
       <div class="side-foot">
@@ -111,6 +118,19 @@
           </form>
           <div class="streamer-table" id="streamer-table"></div>
         </div>
+      </section>
+
+      <section class="templates hidden" id="templates-view">
+        <div class="section-head">
+          <span>// moldes de composição 9:16</span>
+          <span class="tpl-head-actions">
+            <label class="tpl-ref">prévia com
+              <select id="tpl-ref" aria-label="Streamer de referência"></select>
+            </label>
+            <button class="btn btn-primary" id="tpl-new" type="button">+ Novo molde</button>
+          </span>
+        </div>
+        <div class="tpl-grid" id="tpl-grid"></div>
       </section>
 
       <section class="stats" id="stats"></section>
@@ -215,6 +235,11 @@
             </div>
           </div>
 
+          <label class="field">
+            <span>Molde</span>
+            <select id="rr-template"></select>
+          </label>
+
           <label class="toggle">
             <input type="checkbox" id="captions" checked />
             <span class="toggle-ui"></span>
@@ -288,6 +313,46 @@
         <div class="conn-result hidden" id="cb-detect-out"></div>
         <button class="btn btn-primary wide" id="cb-save" type="button">Salvar layout</button>
         <div class="calib-note">grava no <code>streamers.yaml</code> · o loop aplica no próximo ciclo</div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- Template editor -->
+  <section class="calib hidden" id="tpl-editor" role="dialog" aria-label="Editar molde">
+    <div class="calib-head">
+      <div class="calib-title">
+        <div>
+          <div class="calib-name"><span class="crumb">molde ›</span> <span id="te-title"></span></div>
+          <div class="calib-sub" id="te-sub"></div>
+        </div>
+      </div>
+      <div class="calib-head-actions">
+        <button class="icon-btn" id="te-close" title="Fechar (Esc)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+    </div>
+    <div class="calib-body te-body">
+      <div class="te-canvas-col">
+        <div class="te-stage" id="te-stage">
+          <canvas id="te-canvas" width="540" height="960"></canvas>
+          <div id="te-boxes"></div>
+          <div class="te-guide hook" id="te-hook"><span>gancho</span></div>
+          <div class="te-guide caption" id="te-caption"><span>legenda</span></div>
+        </div>
+        <div class="calib-hint">arraste as áreas e as linhas · cantos redimensionam · <kbd>Del</kbd> remove a área</div>
+      </div>
+      <aside class="calib-side te-side">
+        <label class="field"><span>nome</span><input id="te-name" maxlength="60" /></label>
+        <label class="field"><span>id (slug)</span><input id="te-id" maxlength="40" /></label>
+        <label class="field"><span>fundo</span>
+          <select id="te-bg"><option value="black">preto</option><option value="blur">desfocado (do gameplay)</option></select>
+        </label>
+        <div class="card-head"><span>áreas</span>
+          <span class="te-add"><button class="link-btn" id="te-add-cam" type="button">+ câmera</button><button class="link-btn" id="te-add-game" type="button">+ gameplay</button></span>
+        </div>
+        <div class="te-slots" id="te-slots"></div>
+        <label class="field"><span>prévia com</span><select id="te-ref"></select></label>
+        <button class="btn btn-primary wide" id="te-save" type="button">Salvar molde</button>
+        <div class="calib-note" id="te-note"></div>
       </aside>
     </div>
   </section>

@@ -30,9 +30,11 @@ STREAMERS_YAML = """streamers:
 class FakePipeline:
     """Stands in for Pipeline in the re-render worker: records the call, writes a fake mp4."""
 
-    def __init__(self, store: Store, out_dir: Path) -> None:
+    def __init__(self, store: Store, out_dir: Path, settings: Settings | None = None) -> None:
         self.store = store
         self.out_dir = out_dir
+        self.settings = settings
+        self.catalog: Any = None
         self.calls: list[dict[str, Any]] = []
 
     def render_clip(self, clip: Any, **kwargs: Any) -> RenderResult:
@@ -64,7 +66,7 @@ def env(tmp_path: Path) -> tuple[TestClient, Store, FakePipeline, Path]:
     }))  # fmt: skip
     store.set_status(clip.key, ClipStatus.READY, output_path=str(video))
     catalog = StreamerCatalog(streamers=[Streamer(name="Alanzoka", platform=Platform.TWITCH, login="alanzoka")])
-    fake = FakePipeline(Store(settings.db_path), out)
+    fake = FakePipeline(Store(settings.db_path), out, settings)
     app = create_app(
         settings, catalog, lambda: fake, env_path=tmp_path / ".env"  # type: ignore[arg-type, return-value]
     )
@@ -117,7 +119,9 @@ def test_rerender_runs_in_background_with_trim_and_hook(env: tuple[TestClient, S
         time.sleep(0.02)
     job = client.get("/api/jobs").json()[0]
     assert job["state"] == "done", job
-    assert fake.calls == [{"score": 12.5, "captions": True, "hook_text": "novo gancho", "trim": (2.0, 12.0)}]
+    assert fake.calls == [
+        {"score": 12.5, "captions": True, "hook_text": "novo gancho", "trim": (2.0, 12.0), "template_id": None}
+    ]
     assert store.get("twitch:c1").status == ClipStatus.READY  # type: ignore[union-attr]
 
 

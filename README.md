@@ -119,6 +119,27 @@ O modelo do Whisper é baixado na build, então o primeiro clip não espera down
 
 ---
 
+## 🧩 Moldes (composição 9:16)
+
+A **calibração** diz onde a câmera está na live; o **molde** diz onde ela vai no vídeo final.
+
+| Molde pronto | Composição |
+|---|---|
+| `stack-30` | câmera em cima (30%), gameplay embaixo |
+| `stack-50` | meio a meio |
+| `cam-bottom` | gameplay em cima, câmera embaixo |
+| `pip-circle` | gameplay em tela cheia + câmera em **círculo** com borda |
+| `pip-rounded` | gameplay em tela cheia + câmera **arredondada** |
+| `blur-full` | só gameplay sobre fundo desfocado (fallback quando não há câmera) |
+
+Na tela **Moldes** do painel dá pra **duplicar e editar** qualquer um: arraste as áreas no canvas 9:16, escolha encaixe
+(preencher / caber inteiro), formato (retângulo / arredondado / círculo), borda e cor, e arraste as linhas do **gancho** e
+da **legenda**. A prévia usa um frame real do streamer. Os seus moldes ficam em `config/templates.yaml`.
+
+Escolha o molde **por streamer** (coluna *molde* em Conexões, ou `template: pip-circle` no YAML) ou **por corte**, na hora
+de re-renderizar. Sem molde, o streamer segue no layout clássico. Se o clip não tiver câmera visível, o corte cai no
+`blur-full` automaticamente.
+
 ## ⚙️ Configuração
 
 ### Streamers — `config/streamers.yaml`
@@ -168,6 +189,7 @@ grava no YAML (preservando os comentários) e o loop aplica no próximo ciclo.
 | `CLIPPER_HOOK_MODEL` | `claude-opus-5-5` | Modelo usado no gancho |
 | `CLIPPER_DATA_DIR` | `data` | Fila SQLite, downloads e arquivos de trabalho |
 | `CLIPPER_OUTPUT_DIR` | `data/output` | Onde os vídeos prontos são salvos |
+| `CLIPPER_TEMPLATES_FILE` | `config/templates.yaml` | Moldes criados no painel |
 | `CLIPPER_FONTS_DIR` | `assets/fonts` | Fonte bold do gancho e das legendas (ex.: Montserrat, OFL) |
 | `CLIPPER_STREAMERS_FILE` | `config/streamers.yaml` | Catálogo de streamers |
 | `CLIPPER_PANEL_ALLOWED_HOSTS` | *(vazio)* | Hosts extras aceitos pelo painel além de `localhost` (ex.: IP da rede local) |

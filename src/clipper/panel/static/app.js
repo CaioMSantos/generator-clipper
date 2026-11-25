@@ -444,6 +444,7 @@ function resetEditor() {
   $("#trim-start").value = "";
   $("#trim-end").value = "";
   $("#captions").checked = true;
+  fillTemplateSelect($("#rr-template"), clip?.template || "", "— do streamer —");
   updateTrimBar();
 }
 
@@ -489,6 +490,7 @@ async function rerender() {
   const clip = current();
   if (!clip) return;
   const body = { captions: $("#captions").checked };
+  if ($("#rr-template").value) body.template = $("#rr-template").value;
   if (state.hookMode === "text") body.hook = $("#hook").value.trim();
   else if (state.hookMode === "none") body.hook = "";
   // "ai": omit hook -> backend asks the model
@@ -591,7 +593,7 @@ $("#search").addEventListener("input", (e) => {
 
 document.addEventListener("keydown", (e) => {
   const typing = ["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName);
-  if (!$("#calib").classList.contains("hidden")) { calibKey(e); return; }
+  if (!$("#calib").classList.contains("hidden") || !$("#tpl-editor").classList.contains("hidden")) { calibKey(e); return; }
   if (e.key === "Escape") {
     if (!$("#help").classList.contains("hidden")) { $("#help").classList.add("hidden"); return; }
     if (typing) { document.activeElement.blur(); return; }
@@ -641,15 +643,22 @@ const LOGOS = { twitch: "tw", kick: "K", anthropic: "AI" };
 function setView(view) {
   if (state.view === view) return;
   state.view = view;
-  const conn = view === "connections";
-  $("#connections-view").classList.toggle("hidden", !conn);
+  const tpl = view === "templates";
+  const conn = view === "connections" || tpl;
+  $("#connections-view").classList.toggle("hidden", view !== "connections");
+  $("#templates-view").classList.toggle("hidden", !tpl);
+  $("#nav-templates").classList.toggle("on", tpl);
   for (const id of ["#stats", "#grid", "#empty"]) $(id).classList.toggle("hidden", conn);
   if (!conn) $("#empty").classList.toggle("hidden", state.clips.length > 0);
   $(".search").classList.toggle("hidden", conn);
   $("#view-count").classList.toggle("hidden", conn);
-  $("#nav-connections").classList.toggle("on", conn);
-  $(".crumb").textContent = conn ? "~/config/" : "~/cortes/";
-  if (conn) {
+  $("#nav-connections").classList.toggle("on", view === "connections");
+  $(".crumb").textContent = tpl ? "~/moldes/" : conn ? "~/config/" : "~/cortes/";
+  if (tpl) {
+    $("#view-title").textContent = "Moldes";
+    closeDrawer();
+    loadTemplates();
+  } else if (conn) {
     $("#view-title").textContent = "Conexões";
     closeDrawer();
     loadConnections();
@@ -771,7 +780,8 @@ async function streamerCall(method, path, body, okMsg) {
 function renderStreamers() {
   const head = el("div", { class: "st-row head" },
     el("span"), el("span", { text: "nome" }), el("span", { text: "plataforma" }), el("span", { class: "col-login", text: "login" }),
-    el("span", { text: "min views" }), el("span", { class: "col-layout", text: "layout" }), el("span", { text: "ativo" }), el("span"), el("span"));
+    el("span", { text: "min views" }), el("span", { class: "col-layout", text: "layout" }), el("span", { text: "molde" }),
+    el("span", { text: "ativo" }), el("span"), el("span"));
   const rows = state.streamers.map((s) => {
     const base = `/api/streamers/${s.platform}/${encodeURIComponent(s.login)}`;
     const min = el("input", { type: "number", min: "0", placeholder: "global", value: s.min_views ?? "" });
@@ -790,6 +800,7 @@ function renderStreamers() {
       min,
       el("span", { class: "layout-tag col-layout" }, el("b", { text: s.layout }),
         s.layout === "stack" ? ` · ${s.facecam_positions} pos` : ""),
+      templateSelect(s, base),
       toggle,
       el("button", { class: "st-cal", title: "Calibrar câmera", type: "button", onclick: () => openCalib(s) },
         svg('<circle cx="12" cy="12" r="7"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/><circle cx="12" cy="12" r="1.5"/>')),
@@ -1024,6 +1035,7 @@ function removeSelected() {
 }
 
 function calibKey(e) {
+  if (!$("#tpl-editor").classList.contains("hidden")) { teKey(e); return; }
   const typing = ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName);
   if (e.key === "Escape") { closeCalib(); return; }
   if (typing) return;
@@ -1060,3 +1072,358 @@ $("#cb-detect").addEventListener("click", detectCalib);
 $("#cb-save").addEventListener("click", saveCalib);
 $("#cb-stage").addEventListener("pointerdown", (e) => { if (e.target.id === "cb-img" || e.target.id === "cb-stage") { calib.sel = null; renderRects(); } });
 window.addEventListener("resize", () => { if (calib.s) renderRects(); });
+
+
+// ---------------------------------------------------------------- templates ("moldes")
+const OUT_W = 1080, OUT_H = 1920;
+const tplState = { list: [], refs: {}, refKey: "" };
+
+async function loadTemplatesList() {
+  try { tplState.list = await api("/api/templates"); } catch (e) { toast(`moldes: ${e.message}`, "bad"); }
+  $("#tpl-count").textContent = String(tplState.list.length);
+  return tplState.list;
+}
+
+function fillTemplateSelect(select, value, emptyLabel) {
+  const opts = [el("option", { value: "" }, emptyLabel),
+    ...tplState.list.map((t) => el("option", { value: t.id }, `${t.name}${t.builtin ? "" : " ·"}`))];
+  select.replaceChildren(...opts);
+  select.value = tplState.list.some((t) => t.id === value) ? value : "";
+}
+
+function templateSelect(s, base) {
+  const sel = el("select", { "aria-label": `Molde de ${s.name}` });
+  fillTemplateSelect(sel, s.template || "", "clássico (layout)");
+  sel.addEventListener("change", () => {
+    const v = sel.value;
+    streamerCall("PATCH", base, v ? { template: v } : { clear_template: true },
+      `${s.name}: molde ${v ? tplState.list.find((t) => t.id === v)?.name : "clássico"}`);
+  });
+  return sel;
+}
+
+// Reference frame + source rects (cam/gameplay) of a streamer, to preview templates with real footage.
+async function loadRef(key) {
+  if (!key) return null;
+  if (tplState.refs[key]) return tplState.refs[key];
+  const [platform, login] = key.split(":");
+  const base = `/api/streamers/${platform}/${encodeURIComponent(login)}`;
+  try {
+    const [layout, clips] = await Promise.all([api(`${base}/layout`), api(`${base}/clips`)]);
+    const clip = clips.find((c) => c.downloaded) || clips[0];
+    if (!clip) return null;
+    const img = new Image();
+    await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = `${base}/frame?clip=${encodeURIComponent(clip.key)}&at=4`; });
+    let cam = layout.mode === "stack" ? layout.facecam : null;
+    if (layout.mode === "stack" && layout.facecam_alternates.length) {
+      // the streamer moves the cam around: ask the detector which position this frame uses
+      try {
+        const r = await api(`${base}/detect`, { method: "POST", body: { clip: clip.key, layout } });
+        if (r.chosen !== null) cam = [layout.facecam, ...layout.facecam_alternates][r.chosen];
+      } catch { /* keep the primary position */ }
+    }
+    const ref = {
+      img,
+      cam,
+      game: layout.mode === "stack" && layout.gameplay ? layout.gameplay : { x: 0, y: 0, w: 1, h: 1 },
+    };
+    tplState.refs[key] = ref;
+    return ref;
+  } catch { return null; }
+}
+
+function fillRefSelect(select) {
+  const streamers = (state.stats?.streamers || []).concat();
+  const opts = streamers.map((s) => el("option", { value: `${s.platform}:${s.login}` }, `${s.name} · ${s.platform}`));
+  select.replaceChildren(el("option", { value: "" }, "esquema (sem frame)"), ...opts);
+  select.value = tplState.refKey && opts.some((o) => o.value === tplState.refKey) ? tplState.refKey : "";
+}
+
+function slotBox(slot, W, H) {
+  let w = Math.max(2, slot.dst.w * W), h = Math.max(2, slot.dst.h * H);
+  if (slot.shape === "circle") w = h = Math.min(w, h);
+  const x = Math.min(slot.dst.x * W, W - w), y = Math.min(slot.dst.y * H, H - h);
+  return { x, y, w, h };
+}
+
+function shapePath(ctx, slot, b) {
+  ctx.beginPath();
+  if (slot.shape === "circle") ctx.ellipse(b.x + b.w / 2, b.y + b.h / 2, b.w / 2, b.h / 2, 0, 0, Math.PI * 2);
+  else if (slot.shape === "rounded") ctx.roundRect(b.x, b.y, b.w, b.h, Math.min(b.w, b.h) * 0.12);
+  else ctx.rect(b.x, b.y, b.w, b.h);
+}
+
+function drawContain(ctx, img, src, b) {
+  const iw = img.naturalWidth, ih = img.naturalHeight;
+  const sw = src.w * iw, sh = src.h * ih, scale = Math.min(b.w / sw, b.h / sh);
+  const dw = sw * scale, dh = sh * scale;
+  ctx.drawImage(img, src.x * iw, src.y * ih, sw, sh, b.x + (b.w - dw) / 2, b.y + (b.h - dh) / 2, dw, dh);
+}
+
+// Mirrors media/compose.py: background, then slots in order (later on top), masks and borders.
+function drawTemplate(canvas, tpl, ref, { guides = false } = {}) {
+  const ctx = canvas.getContext("2d"), W = canvas.width, H = canvas.height, k = W / OUT_W;
+  ctx.save();
+  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
+  const real = ref && ref.img && ref.img.naturalWidth;
+  if (tpl.background === "blur") {
+    if (real) { ctx.filter = `blur(${Math.max(4, 12 * k)}px) brightness(0.92)`; drawCover(ctx, ref.img, ref.game, 0, 0, W, H); ctx.filter = "none"; }
+    else { const g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, "#1b2733"); g.addColorStop(1, "#0b1016"); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H); }
+  }
+  for (const slot of tpl.slots) {
+    const b = slotBox(slot, W, H);
+    ctx.save();
+    if (slot.shape !== "rect" && slot.fit === "cover") { shapePath(ctx, slot, b); ctx.clip(); }
+    const src = slot.kind === "cam" ? ref?.cam : ref?.game;
+    if (real && src) {
+      if (slot.fit === "cover") drawCover(ctx, ref.img, src, b.x, b.y, b.w, b.h);
+      else drawContain(ctx, ref.img, src, b);
+    } else {
+      ctx.fillStyle = slot.kind === "cam" ? "rgba(34,211,238,.18)" : "rgba(251,191,36,.12)";
+      ctx.fillRect(b.x, b.y, b.w, b.h);
+      ctx.fillStyle = slot.kind === "cam" ? "#22d3ee" : "#fbbf24";
+      ctx.font = `700 ${Math.max(9, 34 * k)}px "JetBrains Mono", monospace`;
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(slot.kind === "cam" ? "CAM" : "GAMEPLAY", b.x + b.w / 2, b.y + b.h / 2);
+    }
+    ctx.restore();
+    if (slot.border_px > 0) {
+      ctx.save(); ctx.lineWidth = slot.border_px * k; ctx.strokeStyle = slot.border_color;
+      const inset = ctx.lineWidth / 2;
+      shapePath(ctx, slot, { x: b.x + inset, y: b.y + inset, w: b.w - 2 * inset, h: b.h - 2 * inset }); ctx.stroke(); ctx.restore();
+    }
+  }
+  if (guides) {
+    // hook card + caption sample, to judge legibility
+    const hy = tpl.hook_y * H, bw = W * 0.72, bh = 96 * k;
+    ctx.fillStyle = "rgba(255,255,255,.95)"; ctx.beginPath(); ctx.roundRect((W - bw) / 2, hy - bh / 2, bw, bh, 18 * k); ctx.fill();
+    ctx.fillStyle = "#000"; ctx.font = `800 ${40 * k}px Arial, sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText("GANCHO AQUI?", W / 2, hy);
+    ctx.font = `800 ${60 * k}px Arial, sans-serif`; ctx.lineWidth = 6 * k; ctx.strokeStyle = "#000"; ctx.fillStyle = "#fff";
+    ctx.textBaseline = "alphabetic";
+    ctx.strokeText("legenda", W / 2, tpl.caption_y * H); ctx.fillText("legenda", W / 2, tpl.caption_y * H);
+  }
+  ctx.restore();
+}
+
+async function loadTemplates() {
+  await loadTemplatesList();
+  fillRefSelect($("#tpl-ref"));
+  if (!tplState.refKey) {
+    // default to the streamer with the most clips to review: most likely to have footage downloaded
+    const best = [...(state.stats?.streamers || [])].sort((a, b) => b.to_review - a.to_review)[0];
+    if (best && best.to_review > 0) { tplState.refKey = `${best.platform}:${best.login}`; $("#tpl-ref").value = tplState.refKey; }
+  }
+  const ref = await loadRef(tplState.refKey);
+  const cards = tplState.list.map((t) => {
+    const canvas = el("canvas", { width: "270", height: "480" });
+    drawTemplate(canvas, t, ref, { guides: true });
+    return el("div", { class: "tpl-card" },
+      canvas,
+      el("div", { class: "tpl-meta" },
+        el("div", { class: "tpl-name", text: t.name }),
+        el("div", { class: "tpl-tags" },
+          el("span", { class: t.builtin ? "builtin" : "", text: t.builtin ? "pronto" : "meu" }),
+          el("span", { text: t.background === "blur" ? "fundo blur" : "fundo preto" }),
+          t.used_by.length ? el("span", { class: "used", title: t.used_by.join(", "), text: `${t.used_by.length} streamer${t.used_by.length > 1 ? "s" : ""}` }) : null),
+        el("div", { class: "tpl-actions" },
+          t.builtin ? null : el("button", { class: "link-btn", type: "button", onclick: () => openTemplateEditor(t, false) }, "editar"),
+          el("button", { class: "link-btn", type: "button", onclick: () => openTemplateEditor(t, true) }, "duplicar"),
+          t.builtin ? null : el("button", { class: "link-btn", type: "button", onclick: () => deleteTemplate(t) }, "excluir"))));
+  });
+  $("#tpl-grid").replaceChildren(...cards);
+}
+
+async function deleteTemplate(t) {
+  if (!confirm(`Excluir o molde "${t.name}"?`)) return;
+  try { tplState.list = await api(`/api/templates/${t.id}`, { method: "DELETE" }); toast("molde excluído", "ok"); loadTemplates(); }
+  catch (e) { toast(e.message, "bad"); }
+}
+
+$("#nav-templates").addEventListener("click", () => { closeMobileMenu(); setView(state.view === "templates" ? "clips" : "templates"); });
+$("#tpl-ref").addEventListener("change", (e) => { tplState.refKey = e.target.value; loadTemplates(); });
+$("#tpl-new").addEventListener("click", () => openTemplateEditor({
+  id: "", name: "Novo molde", background: "black", hook_y: 0.3, caption_y: 0.83,
+  slots: [{ kind: "cam", dst: { x: 0, y: 0, w: 1, h: 0.3 }, fit: "cover", shape: "rect", border_px: 0, border_color: "#ffffff" },
+          { kind: "game", dst: { x: 0, y: 0.3, w: 1, h: 0.7 }, fit: "cover", shape: "rect", border_px: 0, border_color: "#ffffff" }],
+}, true));
+
+// ---------------------------------------------------------------- template editor
+const te = { tpl: null, isNew: false, sel: null, ref: null, dirty: false };
+const slug = (s) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+
+async function openTemplateEditor(t, asCopy) {
+  te.tpl = JSON.parse(JSON.stringify(t));
+  delete te.tpl.builtin; delete te.tpl.used_by;
+  te.isNew = asCopy;
+  if (asCopy) {
+    te.tpl.name = t.id ? `${t.name} (cópia)` : t.name;
+    te.tpl.id = slug(te.tpl.name);
+    while (tplState.list.some((x) => x.id === te.tpl.id)) te.tpl.id = `${te.tpl.id.slice(0, 36)}-${Math.floor(Math.random() * 90 + 10)}`;
+  }
+  te.sel = null; te.dirty = false;
+  $("#te-title").textContent = te.tpl.name;
+  $("#te-sub").textContent = asCopy ? "novo molde" : `editando · ${te.tpl.id}`;
+  $("#te-name").value = te.tpl.name;
+  $("#te-id").value = te.tpl.id;
+  $("#te-id").disabled = !asCopy;
+  $("#te-bg").value = te.tpl.background;
+  fillRefSelect($("#te-ref"));
+  $("#te-note").textContent = "salvo em config/templates.yaml · escolha o molde por streamer em Conexões";
+  $("#tpl-editor").classList.remove("hidden");
+  te.ref = await loadRef($("#te-ref").value);
+  teRender();
+}
+
+function closeTemplateEditor(force = false) {
+  if (!force && te.dirty && !confirm("Descartar as alterações deste molde?")) return;
+  $("#tpl-editor").classList.add("hidden");
+  te.tpl = null;
+}
+
+function teRender() {
+  if (!te.tpl) return;
+  drawTemplate($("#te-canvas"), te.tpl, te.ref, { guides: true });
+  const boxes = te.tpl.slots.map((slot, i) => {
+    const b = slotBox(slot, 1, 1);
+    const node = el("div", {
+      class: `cb-rect ${slot.kind === "cam" ? "cam" : "game"} ${slot.shape} ${te.sel === i ? "sel" : ""}`,
+      style: `left:${b.x * 100}%;top:${b.y * 100}%;width:${b.w * 100}%;height:${b.h * 100}%;${slot.kind === "game" ? "border-style:dashed" : ""}`,
+    }, el("span", { class: "cb-tag", text: `${i + 1} · ${slot.kind === "cam" ? "CAM" : "GAMEPLAY"}` }),
+       ...["nw", "ne", "sw", "se"].map((h) => el("span", { class: `cb-handle ${h}`, "data-h": h })));
+    node.addEventListener("pointerdown", (e) => teDrag(e, i));
+    return node;
+  });
+  $("#te-boxes").replaceChildren(...boxes);
+  $("#te-hook").style.top = `${te.tpl.hook_y * 100}%`;
+  $("#te-caption").style.top = `${te.tpl.caption_y * 100}%`;
+  teRenderSlots();
+}
+
+function teRenderSlots() {
+  const rows = te.tpl.slots.map((slot, i) => {
+    const pick = (label, key, options) => {
+      const s = el("select", {}, ...options.map(([v, t]) => el("option", { value: v }, t)));
+      s.value = slot[key];
+      s.addEventListener("change", () => { slot[key] = s.value; if (key === "shape" && s.value === "circle") squareCircle(slot); te.dirty = true; teRender(); });
+      return el("label", {}, label, s);
+    };
+    const border = el("input", { type: "number", min: "0", max: "40", value: slot.border_px });
+    border.addEventListener("input", () => { slot.border_px = Math.max(0, Math.min(40, Number(border.value) || 0)); te.dirty = true; drawTemplate($("#te-canvas"), te.tpl, te.ref, { guides: true }); });
+    const color = el("input", { type: "color", value: slot.border_color });
+    color.addEventListener("input", () => { slot.border_color = color.value; te.dirty = true; drawTemplate($("#te-canvas"), te.tpl, te.ref, { guides: true }); });
+    const row = el("div", { class: `te-slot ${te.sel === i ? "sel" : ""}`, onclick: () => { te.sel = i; teRender(); } },
+      el("div", { class: "te-slot-head" },
+        el("span", { class: slot.kind === "cam" ? "cam" : "game", text: `${i + 1} · ${slot.kind === "cam" ? "câmera" : "gameplay"}` }),
+        el("span", { class: "te-add" },
+          el("button", { class: "link-btn", type: "button", title: "Trazer para frente", onclick: (e) => { e.stopPropagation(); moveSlot(i, 1); } }, "↑"),
+          el("button", { class: "link-btn", type: "button", title: "Remover", onclick: (e) => { e.stopPropagation(); removeSlot(i); } }, "✕"))),
+      pick("encaixe", "fit", [["cover", "preencher"], ["contain", "caber inteiro"]]),
+      pick("formato", "shape", [["rect", "retângulo"], ["rounded", "arredondado"], ["circle", "círculo"]]),
+      el("label", {}, "borda px", border),
+      el("label", {}, "cor da borda", color));
+    return row;
+  });
+  $("#te-slots").replaceChildren(...rows);
+}
+
+function squareCircle(slot) {
+  // make the slot a pixel square, keeping its height
+  slot.dst.w = Math.min(1 - slot.dst.x, round4(slot.dst.h * OUT_H / OUT_W));
+}
+
+function moveSlot(i, dir) {
+  const j = i + dir;
+  if (j < 0 || j >= te.tpl.slots.length) return;
+  [te.tpl.slots[i], te.tpl.slots[j]] = [te.tpl.slots[j], te.tpl.slots[i]];
+  te.sel = j; te.dirty = true; teRender();
+}
+
+function removeSlot(i) {
+  if (te.tpl.slots.length <= 1) { toast("o molde precisa de pelo menos uma área", "bad"); return; }
+  te.tpl.slots.splice(i, 1); te.sel = null; te.dirty = true; teRender();
+}
+
+function addSlot(kind) {
+  if (te.tpl.slots.length >= 4) { toast("máximo de 4 áreas", "bad"); return; }
+  const dst = kind === "cam" ? { x: 0.05, y: 0.05, w: 0.45, h: 0.15 } : { x: 0, y: 0.3, w: 1, h: 0.7 };
+  te.tpl.slots.push({ kind, dst, fit: "cover", shape: "rect", border_px: 0, border_color: "#ffffff" });
+  te.sel = te.tpl.slots.length - 1; te.dirty = true; teRender();
+}
+
+function teDrag(e, i) {
+  e.preventDefault(); e.stopPropagation();
+  te.sel = i;
+  const slot = te.tpl.slots[i], r = slot.dst, start = { ...r };
+  const stage = $("#te-stage").getBoundingClientRect();
+  const handle = e.target.dataset?.h || null, x0 = e.clientX, y0 = e.clientY;
+  const move = (ev) => {
+    const dx = (ev.clientX - x0) / stage.width, dy = (ev.clientY - y0) / stage.height;
+    if (!handle) {
+      r.x = clamp(start.x + dx, 0, 1 - start.w); r.y = clamp(start.y + dy, 0, 1 - start.h);
+    } else {
+      let { x, y, w, h } = start;
+      if (handle.includes("w")) { const nx = clamp(x + dx, 0, x + w - MIN_SIZE); w += x - nx; x = nx; }
+      if (handle.includes("e")) w = clamp(w + dx, MIN_SIZE, 1 - x);
+      if (handle.includes("n")) { const ny = clamp(y + dy, 0, y + h - MIN_SIZE); h += y - ny; y = ny; }
+      if (handle.includes("s")) h = clamp(h + dy, MIN_SIZE, 1 - y);
+      Object.assign(r, { x, y, w, h });
+      if (slot.shape === "circle") { r.w = Math.min(1 - r.x, h * OUT_H / OUT_W); r.h = Math.min(1 - r.y, r.w * OUT_W / OUT_H); }
+    }
+    te.dirty = true; teRender();
+  };
+  const up = () => {
+    window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up);
+    for (const k of ["x", "y", "w", "h"]) r[k] = round4(r[k]);
+    teRender();
+  };
+  window.addEventListener("pointermove", move); window.addEventListener("pointerup", up);
+  teRender();
+}
+
+function teGuideDrag(e, key, lo, hi) {
+  e.preventDefault();
+  const stage = $("#te-stage").getBoundingClientRect();
+  const move = (ev) => { te.tpl[key] = round4(clamp((ev.clientY - stage.top) / stage.height, lo, hi)); te.dirty = true; teRender(); };
+  const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
+  window.addEventListener("pointermove", move); window.addEventListener("pointerup", up);
+}
+
+async function saveTemplate() {
+  const t = te.tpl;
+  t.name = $("#te-name").value.trim() || "Sem nome";
+  if (te.isNew) t.id = slug($("#te-id").value || t.name);
+  if (!/^[a-z0-9][a-z0-9-]{1,39}$/.test(t.id)) { toast("id inválido: use letras minúsculas, números e -", "bad"); return; }
+  if (te.isNew && tplState.list.some((x) => x.id === t.id)) { toast(`já existe um molde com id "${t.id}"`, "bad"); return; }
+  t.background = $("#te-bg").value;
+  try {
+    tplState.list = await api(`/api/templates/${t.id}`, { method: "PUT", body: t });
+    te.dirty = false; te.isNew = false;
+    $("#te-id").disabled = true; $("#te-sub").textContent = `editando · ${t.id}`;
+    toast(`molde "${t.name}" salvo`, "ok");
+    loadTemplates();
+  } catch (e) { toast(`salvar: ${e.message}`, "bad"); }
+}
+
+function teKey(e) {
+  const typing = ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName);
+  if (e.key === "Escape") { closeTemplateEditor(); return; }
+  if (typing) return;
+  if ((e.key === "Delete" || e.key === "Backspace") && te.sel !== null) { e.preventDefault(); removeSlot(te.sel); }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); saveTemplate(); }
+}
+
+$("#te-close").addEventListener("click", () => closeTemplateEditor());
+$("#te-save").addEventListener("click", saveTemplate);
+$("#te-add-cam").addEventListener("click", () => addSlot("cam"));
+$("#te-add-game").addEventListener("click", () => addSlot("game"));
+$("#te-name").addEventListener("input", () => {
+  te.dirty = true; $("#te-title").textContent = $("#te-name").value;
+  if (te.isNew) $("#te-id").value = slug($("#te-name").value);
+});
+$("#te-bg").addEventListener("change", () => { te.tpl.background = $("#te-bg").value; te.dirty = true; teRender(); });
+$("#te-ref").addEventListener("change", async () => { tplState.refKey = $("#te-ref").value; te.ref = await loadRef(tplState.refKey); teRender(); });
+$("#te-hook").addEventListener("pointerdown", (e) => teGuideDrag(e, "hook_y", 0.05, 0.95));
+$("#te-caption").addEventListener("pointerdown", (e) => teGuideDrag(e, "caption_y", 0.3, 0.95));
+$("#te-stage").addEventListener("pointerdown", (e) => { if (e.target.tagName === "CANVAS") { te.sel = null; teRender(); } });
+loadTemplatesList();
